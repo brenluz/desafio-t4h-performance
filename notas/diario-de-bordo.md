@@ -37,6 +37,7 @@ Regras que valem aqui também:
 | 2026-11-05 | Diagnóstico 02 com `pg_stat_statements`: `/pedidos` = 46,5% do tempo do banco | `4aef666`, `f4ff869` |
 | 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | `1f5b233` |
 | 2026-11-05 | Experimento 02: índice criado, plano conferido, medido 3 vezes; +42% req/s e p95 −18% sobre o 01 | `4640d9c`, `e8bafec`, `b8357ef` |
+| 2026-11-05 | Hipótese do experimento 03 (N+1 em `/clientes/:id/pedidos`) escrita antes da mudança | este diário |
 
 ## Ambiente
 
@@ -77,7 +78,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | # | Problema | Onde | Evidência (ocioso) | Hipótese de causa | Status |
 | --- | --- | --- | --- | --- | --- |
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
-| P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | a investigar |
+| P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | experimento 03 planejado |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
@@ -311,7 +312,32 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 
 - **Conclusão:** aplicada e medida, com ganho. +42% req/s e −18% de p95 sobre o experimento 01, sem mudar código nem resposta, ao custo de 21 MB de índice e ~30 MiB a mais de memória média no banco. A hipótese se sustentou para a paginação; o `count(*)` continua caro.
 - **Gargalo que apareceu depois (hipóteses, a confirmar com novo ranking):** `vendas-por-dia` e `top-produtos` (que já eram 37% do tempo do banco no Diagnóstico 02), o `count(*)` de `/pedidos`, e o N+1 + conexões de `pedidos-do-cliente`, que segue como a rota mais lenta entre as de maior peso (~10 s).
-- **Próximo passo sugerido:** novo ranking com `pg_stat_statements` sobre o experimento 02, sem sobrescrever o ranking do Diagnóstico 02.
+- **Próximo passo sugerido:** novo ranking com `pg_stat_statements` sobre o experimento 02, sem sobrescrever o ranking do Diagnóstico 02. (Decidido seguir direto para o N+1, sem novo ranking.)
+
+### 03-n-mais-1
+
+- **Status:** planejado (hipótese escrita antes da mudança)
+- **Problema:** P2 (N+1 em `/clientes/:id/pedidos`), rota de 20% da carga e a mais lenta entre as de maior peso (mediana ~10,1 s no experimento 02).
+- **Situação atual (fato):** por requisição, 1 consulta de cliente + 1 de pedidos + 1 por pedido (5) + 1 por item (~14,7 em média: 675 consultas de produto em 46 requisições no Diagnóstico 02) ≈ 22 consultas em sequência, cada uma com conexão nova (`db.js`). Com os índices do experimento 01, cada consulta é barata (< 1 ms ociosa), mas sob carga cada uma espera a vez no banco saturado.
+- **Hipótese:** trocar o laço por uma consulta só (`pedidos` + `itens_pedido` + `produtos` com `JOIN`, ordenada como hoje e agrupada no Node) deve derrubar a mediana e o p95 de `pedidos-do-cliente` e aumentar as req/s, porque a requisição passa de ~22 idas ao banco para 2, e cada ida sob carga custa uma espera na fila mais a abertura de uma conexão.
+- **Previsões que dá para conferir:**
+  - `pedidos-do-cliente` cai bem mais que os −20% do experimento 02 (ordem de grandeza: de ~10 s para perto do tempo de uma ou duas esperas na fila, ~1–2 s, como `cliente-por-email`).
+  - req/s geral sobe; o p95 geral cai menos, porque passa a ser dominado por `vendas-por-dia`, `top-produtos` e `pedidos-por-status`.
+  - O banco provavelmente continua saturado: na carga de ciclo fechado os usuários liberados vão pedir mais relatórios.
+  - CPU da API pode subir um pouco (agrupamento das linhas em JS e mais req/s), mas cai o trabalho de abrir ~20 conexões por requisição.
+- **O que derrubaria a hipótese:** `pedidos-do-cliente` sem queda clara além da variação, ou a nova consulta ficar lenta (plano com `Seq Scan`).
+- **Duas variáveis inseparáveis (registrar no artigo):** como o `db.js` abre uma conexão por consulta, reduzir de ~22 para 2 consultas também reduz de ~22 para 2 conexões por requisição. Este experimento mede o efeito somado de menos idas ao banco **e** menos conexões. Para separar, seria preciso fazer o pool (P3) antes; o pool fica como experimento seguinte e vai mostrar o efeito das conexões nas outras rotas.
+- **Fonte da ideia:** F5 (DataLoader: juntar buscas individuais num lote; "A naive application may have issued four round-trips [...] with DataLoader this application will make at most two"); F6 (guia do Rails, seção "N + 1 Queries Problem" — trecho a conferir).
+- **Por que esta e não outra:** ver [Alternativas](#alternativas). Consulta única com `JOIN`: menos idas ao banco (2) e sem mudar o formato das datas, que é o risco do `json_agg`. O lote com `ANY` (3 consultas) seria igualmente válido; ficou de fora por fazer uma ida a mais.
+- **Cuidados de contrato:** manter a ordem dos pedidos (`criado_em DESC, id DESC`) e dos itens (`id`), a ordem dos campos no objeto (`id, status, criado_em, total_centavos, itens`), o total calculado em JS como hoje, `[]` para cliente sem pedidos, 400 e 404 como hoje. `LEFT JOIN` para não perder pedido sem item, caso exista.
+- **Mudança:** `api/src/rotas.js`, rota `/clientes/:id/pedidos` — commit `<preencher>`
+- **Custo esperado:** nenhum recurso novo; possível aumento pequeno de CPU/memória da API.
+- **Evidência a salvar:** `diagnostico/04-n-mais-1/` com `EXPLAIN (ANALYZE, BUFFERS)` da nova consulta
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 02 (pastas em [02-indice-pedidos-status](#02-indice-pedidos-status))
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
 
 ## Fontes
 
@@ -320,6 +346,8 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 | F1 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 5.4.5 Foreign Keys | https://www.postgresql.org/docs/16/ddl-constraints.html#DDL-CONSTRAINTS-FK | 2026-11-05 | doc oficial | índices | "the declaration of a foreign key constraint does not automatically create an index on the referencing columns"; recomenda indexar essas colunas ("it is often a good idea to index the referencing columns too") |
 | F2 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.1 Introduction (Indexes) | https://www.postgresql.org/docs/16/indexes-intro.html | 2026-11-05 | doc oficial | índices | Sem índice o sistema "would have to scan the entire test1 table, row by row"; o índice precisa ser mantido sincronizado com a tabela, o que "adds overhead to data manipulation operations" |
 | F3 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.32 pg_stat_statements — track statistics of SQL planning and execution | https://www.postgresql.org/docs/16/pgstatstatements.html | 2026-11-05 | doc oficial | diagnóstico | "provides a means for tracking planning and execution statistics of all SQL statements executed by a server"; "must be loaded by adding pg_stat_statements to shared_preload_libraries [...] a server restart is needed"; `total_exec_time` = "Total time spent executing the statement, in milliseconds" |
+| F5 | GraphQL Foundation (repositório graphql/dataloader) | DataLoader — README, seção "Batching" | https://github.com/graphql/dataloader#batching | 2026-11-05 | técnica primária (doc de biblioteca) | N+1 / lote | "DataLoader will coalesce all individual loads which occur within a single frame of execution (a single tick of the event loop) and then call your batch function with all requested keys."; "A naive application may have issued four round-trips to a backend for the required information, but with DataLoader this application will make at most two." |
+| F6 | Rails Guides | Active Record Query Interface, 16.1 "N + 1 Queries Problem" | https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem | 2026-11-05 | doc oficial (caso de mercado/framework) | N+1 | **A conferir no navegador:** só o título da seção foi confirmado; o texto da seção (1 consulta + N consultas; `includes` reduz para 2) ainda não foi lido literalmente |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -330,6 +358,10 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 
 | Problema | Alternativa | Custo | Desempenho esperado | Risco | Esforço | Decisão e motivo |
 | --- | --- | --- | --- | --- | --- | --- |
+| P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
+| P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
+| P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P2 N+1 | Cache de resposta por cliente (ex.: Redis) | serviço novo (CPU/memória) | alto só para clientes repetidos; a carga sorteia entre 100 mil | médio: invalidação | alto | descartada: não ataca a causa; a carga quase não repete cliente |
 
 ## Ideias não testadas
 
@@ -356,3 +388,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 01, calculou as medianas e escreveu a análise (previsões × resultado, ciclo fechado, `cpu_max`) | Números copiados de `resumo.txt` e `recursos.txt`; conferir contra as pastas |
 | 2026-11-05 | Claude Code | Sugeriu o método do Diagnóstico 02 (script `coletar.sh` e compose à parte), analisou o `ranking.txt`, argumentou a ordem `/pedidos` antes do N+1, abriu F3 e F4 e redigiu a hipótese do experimento 02 | Script e saída no repositório; conferir números contra `ranking.txt` e citações nos links |
 | 2026-11-05 | Claude Code | Leu a evidência e as 3 pastas do experimento 02, calculou medianas e variações, e escreveu a análise (previsões × resultado, autovacuum) | Números copiados de `diagnostico/03-...` e `resumo.txt`/`recursos.txt`; conferir contra os arquivos |
+| 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 03, a tabela de alternativas do N+1 e sugeriu o código da nova rota; buscou fontes (F5 verificada; F6 só o título; artigo Chen et al. ICSE 2014 não abriu e ficou de fora) | Conferir F6 no navegador; código revisado por mim e validado pelo verificador de contrato |
