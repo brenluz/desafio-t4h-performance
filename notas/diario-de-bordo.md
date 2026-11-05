@@ -37,7 +37,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Diagnóstico 02 com `pg_stat_statements`: `/pedidos` = 46,5% do tempo do banco | `4aef666`, `f4ff869` |
 | 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | `1f5b233` |
 | 2026-11-05 | Experimento 02: índice criado, plano conferido, medido 3 vezes; +42% req/s e p95 −18% sobre o 01 | `4640d9c`, `e8bafec`, `b8357ef` |
-| 2026-11-05 | Hipótese do experimento 03 (N+1 em `/clientes/:id/pedidos`) escrita antes da mudança | este diário |
+| 2026-11-05 | Hipótese do experimento 03 (N+1 em `/clientes/:id/pedidos`) escrita antes da mudança | `9957cfa` |
+| 2026-11-05 | Experimento 03: consulta única, medido 3 vezes; rota −91%, +45% req/s, p95 geral +12,5% | `8293e59`, `9bb2e7a` |
 
 ## Ambiente
 
@@ -78,7 +79,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | # | Problema | Onde | Evidência (ocioso) | Hipótese de causa | Status |
 | --- | --- | --- | --- | --- | --- |
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
-| P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | experimento 03 planejado |
+| P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
@@ -316,7 +317,7 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 
 ### 03-n-mais-1
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — ganho em vazão, mediana e na rota-alvo; p95 geral piorou (explicado abaixo)
 - **Problema:** P2 (N+1 em `/clientes/:id/pedidos`), rota de 20% da carga e a mais lenta entre as de maior peso (mediana ~10,1 s no experimento 02).
 - **Situação atual (fato):** por requisição, 1 consulta de cliente + 1 de pedidos + 1 por pedido (5) + 1 por item (~14,7 em média: 675 consultas de produto em 46 requisições no Diagnóstico 02) ≈ 22 consultas em sequência, cada uma com conexão nova (`db.js`). Com os índices do experimento 01, cada consulta é barata (< 1 ms ociosa), mas sob carga cada uma espera a vez no banco saturado.
 - **Hipótese:** trocar o laço por uma consulta só (`pedidos` + `itens_pedido` + `produtos` com `JOIN`, ordenada como hoje e agrupada no Node) deve derrubar a mediana e o p95 de `pedidos-do-cliente` e aumentar as req/s, porque a requisição passa de ~22 idas ao banco para 2, e cada ida sob carga custa uma espera na fila mais a abertura de uma conexão.
@@ -330,14 +331,71 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 - **Fonte da ideia:** F5 (DataLoader: juntar buscas individuais num lote; "A naive application may have issued four round-trips [...] with DataLoader this application will make at most two"); F6 (guia do Rails, seção "N + 1 Queries Problem" — trecho a conferir).
 - **Por que esta e não outra:** ver [Alternativas](#alternativas). Consulta única com `JOIN`: menos idas ao banco (2) e sem mudar o formato das datas, que é o risco do `json_agg`. O lote com `ANY` (3 consultas) seria igualmente válido; ficou de fora por fazer uma ida a mais.
 - **Cuidados de contrato:** manter a ordem dos pedidos (`criado_em DESC, id DESC`) e dos itens (`id`), a ordem dos campos no objeto (`id, status, criado_em, total_centavos, itens`), o total calculado em JS como hoje, `[]` para cliente sem pedidos, 400 e 404 como hoje. `LEFT JOIN` para não perder pedido sem item, caso exista.
-- **Mudança:** `api/src/rotas.js`, rota `/clientes/:id/pedidos` — commit `<preencher>`
+- **Mudança:** `api/src/rotas.js`, rota `/clientes/:id/pedidos`: o laço com uma consulta por pedido e por item virou uma consulta com `LEFT JOIN` em `itens_pedido` e `produtos`, ordenada por `p.criado_em DESC, p.id DESC, i.id`, agrupada no Node (um pedido novo começa quando o `id` muda) — commit `8293e59`. Evidência em `9bb2e7a` (commit medido).
+  - Observação: ao colar o código, a IDE reformatou duas linhas não relacionadas (`{ erro: ... }` → `{erro: ...}`) e o `;` depois do `consultar(...)` ficou de fora. Sem efeito no comportamento (inserção automática de `;` do JavaScript; contrato mantido); só ruído de estilo no diff.
 - **Custo esperado:** nenhum recurso novo; possível aumento pequeno de CPU/memória da API.
-- **Evidência a salvar:** `diagnostico/04-n-mais-1/` com `EXPLAIN (ANALYZE, BUFFERS)` da nova consulta
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 02 (pastas em [02-indice-pedidos-status](#02-indice-pedidos-status))
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência do plano (banco ocioso)
+
+`diagnostico/04-n-mais-1/explain-pedidos-do-cliente.txt` (cliente 42): `Nested Loop Left Join` com três `Index Scan` — `pedidos_cliente_id_idx` (5 pedidos), `itens_pedido_pedido_id_idx` (5 voltas, 10 itens), `produtos_pkey` (10 voltas) — e um `Sort` em memória de 10 linhas. 64 páginas, todas em cache, **3,0 ms** de execução. Nenhum `Seq Scan`. Antes eram ~22 consultas separadas, cada uma com conexão nova.
+
+#### Medição sob carga
+
+- **Contrato:** mantido nas 3 execuções (`contrato.txt`)
+- **Antes:** experimento 02 (mediana das 3 pastas em [02-indice-pedidos-status](#02-indice-pedidos-status))
+- **Depois:** commit `9bb2e7a`, pastas:
+  - [`resultados/20261105-192107-03-n-mais-1`](../resultados/20261105-192107-03-n-mais-1/resumo.txt)
+  - [`resultados/20261105-192320-03-n-mais-1`](../resultados/20261105-192320-03-n-mais-1/resumo.txt)
+  - [`resultados/20261105-192602-03-n-mais-1`](../resultados/20261105-192602-03-n-mais-1/resumo.txt)
+
+| Execução | req/s | mediana | p95 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 192107 | 5.63 | 1056.0 ms | 19465.5 ms | 0.00% | 95.9% | 393.2 MiB | 18.0% | 57.2 MiB |
+| 192320 | 5.77 | 904.9 ms | 19467.3 ms | 0.00% | 99.0% | 396.8 MiB | 16.4% | 50.5 MiB |
+| 192602 | 5.55 | 997.6 ms | 19513.1 ms | 0.00% | 97.3% | 400.1 MiB | 17.3% | 56.3 MiB |
+| **Mediana** | **5.63** | **997.6 ms** | **19467.3 ms** | — | **97.3%** | **396.8 MiB** | **17.3%** | **56.3 MiB** |
+
+| Métrica (mediana das 3) | Linha de base | 01 | 02 | 03-n-mais-1 | 03 vs 02 | 03 vs base |
+| --- | --- | --- | --- | --- | --- | --- |
+| Requisições/s | 1.53 | 2.73 | 3.87 | 5.63 | +45% | +268% |
+| p95 geral | 46763.0 ms | 21153.9 ms | 17306.0 ms | 19467.3 ms | **+12,5% (pior)** | −58% |
+| Mediana geral | 2478.8 ms | 2011.8 ms | 1800.9 ms | 997.6 ms | −45% | −60% |
+| Banco CPU média | 98.5% | 97.6% | 95.9% | 97.3% | ≈ igual (no teto) | ≈ igual |
+| Banco mem média | 396.2 MiB | 383.4 MiB | 412.9 MiB | 396.8 MiB | −16,1 MiB | ≈ igual |
+| API CPU média | 7.0% | 12.7% | 14.9% | 17.3% | +2,4 p.p. | +10,3 p.p. |
+| API mem média | 31.3 MiB | 39.7 MiB | 39.2 MiB | 56.3 MiB | +17,1 MiB | +25,0 MiB |
+
+Faixas contra o experimento 02: req/s 3.66–4.03 → 5.55–5.77 (sem sobreposição); p95 16,2–17,5 s → 19,47–19,51 s (sem sobreposição: a piora do p95 também é maior que a variação). Memória máxima da API chegou a 94,3 MiB, bem abaixo do limite de 256 MB.
+
+Por rota (mediana das medianas das 3 execuções; poucas amostras nas rotas lentas):
+
+| Rota | Chamadas por execução (02 → 03) | Mediana 02 | Mediana 03 | Variação |
+| --- | --- | --- | --- | --- |
+| `pedidos-do-cliente` | 52–56 → 72–79 | 10103.5 ms | 903.4 ms | **−91%** (p95 18306.1 → 1800.2 ms, −90%) |
+| `cliente` | 62–66 → 103–106 | 551.3 ms | 404.1 ms | −27% |
+| `busca-produtos` | 45–49 → 62–64 | 1007.3 ms | 805.6 ms | −20% |
+| `cliente-por-email` | 40–42 → 54–57 | 1906.3 ms | 1705.4 ms | −11% |
+| `pedidos-por-status` | 32–35 → 55–57 | 3423.8 ms | 2915.7 ms | −15% na mediana, mas p95 14612.2 → 21609.1 ms (+48%) |
+| `vendas-por-dia` | 18–20 → 24–27 | 14590.1 ms | 17122.6 ms | +17% |
+| `top-produtos` | 3–4 → 4–5 | 31108.2 ms | 37015.0 ms | +19% |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `pedidos-do-cliente` cai bem mais que −20%, para ~1–2 s | confirmada: 10,1 s → 0,9 s (−91%) |
+| req/s geral sobe | confirmada: +45% |
+| p95 geral cai, mas menos | **refutada**: subiu 12,5%, acima da variação |
+| Banco continua saturado | confirmada: 95,9–99,0% |
+| CPU da API sobe um pouco | confirmada: 14,9% → 17,3%. Não previsto: memória da API +17 MiB |
+
+**Por que o p95 geral piorou (hipótese, coerente com os números):** o p95 é o tempo abaixo do qual ficam 95% de **todas** as requisições, ou seja, ele é decidido pelas ~19 requisições mais lentas de cada execução (5% de ~380). Com `pedidos-do-cliente` rápida, as requisições lentas passaram a ser quase só `vendas-por-dia`, `top-produtos` e a cauda de `pedidos-por-status`. Na carga de ciclo fechado, os usuários liberados chamaram mais essas rotas (`pedidos-por-status` 32–35 → 55–57 chamadas; `vendas-por-dia` 18–20 → 24–27), que disputam o mesmo banco saturado e ficaram mais lentas. A melhora numa rota piorou a cauda das outras.
+
+**Hipóteses não verificadas:** a memória do banco caiu ~16 MiB talvez por haver menos conexões (processos do Postgres) abertas ao mesmo tempo; a memória da API subiu talvez por mais requisições em andamento ao mesmo tempo.
+
+- **Conclusão:** aplicada e medida. Resolveu o problema da rota (−91%), aumentou a vazão (+45%) e cortou a mediana geral (−45%), sem recurso novo. Em troca, o p95 geral piorou 12,5% porque o gargalo ficou ainda mais concentrado nos relatórios e em `pedidos-por-status`. Lição para o artigo: com o banco saturado e carga de ciclo fechado, o p95 geral sozinho engana; é preciso olhar req/s, mediana e as rotas.
+- **Duas variáveis juntas (lembrete):** o ganho é a soma de menos idas ao banco e menos conexões (~22 → 2 por requisição nesta rota).
+- **Gargalo que apareceu depois:** `vendas-por-dia` (P6) e `top-produtos` (P7) dominam a cauda; `pedidos-por-status` ainda tem o `count(*)` (P5) e o `OFFSET`. O pool (P3) agora pesa menos: todas as rotas fazem 1–2 consultas.
 
 ## Fontes
 
@@ -376,6 +434,9 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 - A carga do k6 é de ciclo fechado (cada usuário só pede a próxima depois da resposta anterior): melhorar uma rota aumenta o número de chamadas das outras, então o tempo por rota de rotas não alteradas pode piorar. Comparar pelo resultado geral.
 - Custo de escrita dos índices (INSERT/UPDATE mais lentos) não aparece aqui: a API só lê.
 - O autovacuum roda sozinho ~50 s depois de o banco ser recriado (`diagnostico/03-indice-pedidos-status/vacuum.txt`). Se uma medição começar antes disso, o autovacuum pode rodar durante a carga e os planos podem mudar (ex.: `Heap Fetches` no `count(*)`). Esperar o banco assentar depois de `down -v && up` antes de medir.
+- `cpu_media` subestima um pouco a carga: o coletor do `medir.sh` continua amostrando por alguns segundos depois do fim da carga, e as últimas amostras de cada `recursos.csv` têm o banco quase parado (ex.: 0,05%, 6,90%). Afeta todas as medições do mesmo jeito, então as comparações continuam válidas.
+- Mensagem `date: write error: Broken pipe (os error 32)` no fim do `medir.sh`: o `date` do coletor (uutils coreutils, Ubuntu 26.04) reclama quando o laço é encerrado no meio de uma escrita. Inofensiva: conferido que nenhum `recursos.csv` tem linha malformada (68–86 amostras por execução) e o `resumo.txt` vem do k6, não do coletor.
+- O p95 geral depende da mistura de rotas: na carga de ciclo fechado, acelerar uma rota faz as outras serem mais chamadas e pode piorar a cauda (experimento 03). Comparar sempre req/s, mediana, p95 e as rotas juntos.
 
 ## Uso de IA
 
@@ -389,3 +450,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Sugeriu o método do Diagnóstico 02 (script `coletar.sh` e compose à parte), analisou o `ranking.txt`, argumentou a ordem `/pedidos` antes do N+1, abriu F3 e F4 e redigiu a hipótese do experimento 02 | Script e saída no repositório; conferir números contra `ranking.txt` e citações nos links |
 | 2026-11-05 | Claude Code | Leu a evidência e as 3 pastas do experimento 02, calculou medianas e variações, e escreveu a análise (previsões × resultado, autovacuum) | Números copiados de `diagnostico/03-...` e `resumo.txt`/`recursos.txt`; conferir contra os arquivos |
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 03, a tabela de alternativas do N+1 e sugeriu o código da nova rota; buscou fontes (F5 verificada; F6 só o título; artigo Chen et al. ICSE 2014 não abriu e ficou de fora) | Conferir F6 no navegador; código revisado por mim e validado pelo verificador de contrato |
+| 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 03, calculou medianas e variações, analisou a piora do p95; investigou o aviso `Broken pipe` (checou todos os `recursos.csv`) | Números copiados de `resumo.txt`/`recursos.txt`; conferir contra as pastas |
