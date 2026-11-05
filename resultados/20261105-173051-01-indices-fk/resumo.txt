@@ -1,0 +1,17 @@
+Medição: 01-indices-fk
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        192
+Requisições/s:      2.65
+Tempo de resposta:  mediana 2011.8 ms | p95 21642.0 ms | p99 49083.0 ms
+Erros:              0.52%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               49        601.4 ms      1437.1 ms     1492.8 ms     0.0%    
+cliente-por-email     32        2059.0 ms     2628.5 ms     2821.7 ms     0.0%    
+pedidos-do-cliente    37        12604.5 ms    21572.2 ms    21998.5 ms    0.0%    
+pedidos-por-status    24        10848.1 ms    39936.5 ms    47834.8 ms    0.0%    
+busca-produtos        33        1099.7 ms     1574.4 ms     1675.8 ms     0.0%    
+vendas-por-dia        14        13383.9 ms    40643.0 ms    48957.8 ms    0.0%    
+top-produtos          3         33013.6 ms    57297.5 ms    59456.1 ms    33.3%   
