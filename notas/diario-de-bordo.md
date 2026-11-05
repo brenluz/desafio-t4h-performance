@@ -38,7 +38,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | `1f5b233` |
 | 2026-11-05 | Experimento 02: índice criado, plano conferido, medido 3 vezes; +42% req/s e p95 −18% sobre o 01 | `4640d9c`, `e8bafec`, `b8357ef` |
 | 2026-11-05 | Hipótese do experimento 03 (N+1 em `/clientes/:id/pedidos`) escrita antes da mudança | `9957cfa` |
-| 2026-11-05 | Experimento 03: consulta única, medido 3 vezes; rota −91%, +45% req/s, p95 geral +12,5% | `8293e59`, `9bb2e7a` |
+| 2026-11-05 | Experimento 03: consulta única, medido 3 vezes; rota −91%, +45% req/s, p95 geral +12,5% | `8293e59`, `9bb2e7a`, `06bccf0` |
+| 2026-11-05 | Decidido fazer o pool de conexões antes dos relatórios; hipótese do experimento 04 escrita antes da mudança | este diário |
 
 ## Ambiente
 
@@ -80,7 +81,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | --- | --- | --- | --- | --- | --- |
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
-| P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
+| P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | experimento 04 planejado |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | a investigar |
@@ -397,6 +398,31 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras nas rotas lent
 - **Duas variáveis juntas (lembrete):** o ganho é a soma de menos idas ao banco e menos conexões (~22 → 2 por requisição nesta rota).
 - **Gargalo que apareceu depois:** `vendas-por-dia` (P6) e `top-produtos` (P7) dominam a cauda; `pedidos-por-status` ainda tem o `count(*)` (P5) e o `OFFSET`. O pool (P3) agora pesa menos: todas as rotas fazem 1–2 consultas.
 
+### 04-pool-conexoes
+
+- **Status:** planejado (hipótese escrita antes da mudança)
+- **Problema:** P3 (uma conexão nova por consulta, `api/src/db.js`). Escolhido antes dos relatórios para fechar a questão das conexões, que ficou misturada no experimento 03.
+- **Situação atual (fato + estimativa):** cada consulta faz `new Client` → `connect` → consulta → `end`. O PostgreSQL cria um processo novo para cada conexão (F7). Pela mistura de rotas da carga, a média é ~1,35 consultas por requisição (cliente 1, e-mail 1, pedidos do cliente 2, pedidos por status 2, busca 1, relatórios 1), então a ~5,6 req/s do experimento 03 são ~7–8 conexões abertas e fechadas por segundo (estimativa, a confirmar com a contagem de sessões).
+- **Hipótese:** reaproveitar conexões com `pg.Pool` deve aumentar as req/s e reduzir a mediana, porque o banco deixa de gastar CPU criando um processo e fazendo o handshake a cada consulta (F8: "a handshake which can take 20-30 milliseconds"), e essa CPU volta para as consultas, num banco que está no teto.
+- **Tamanho do pool, uma variável só:** `max: 20`, igual ao número de usuários virtuais. Cada requisição faz no máximo uma consulta por vez, então a carga nunca passa de 20 consultas simultâneas: com 20 conexões ninguém espera na fila do pool e a concorrência no banco fica igual à de hoje. Assim o experimento mede só o custo de abrir conexões. O padrão do `pg` é 10 (F8), o que limitaria a concorrência e misturaria dois efeitos. **Testar um pool pequeno fica como experimento separado** (F9 sugere ~`(núcleos × 2) + discos` conexões, o que dá ~2–3 para um banco de 1 CPU).
+- **Previsões que dá para conferir:**
+  - Sessões abertas no banco durante 60 s de carga caem de centenas para no máximo ~20 (`pg_stat_database.sessions`, antes e depois).
+  - req/s sobe e a mediana cai, mas **o ganho deve ser modesto** (ordem de 5–15%): com ~7–8 conexões por segundo, o custo de conexão é uma fração pequena da CPU do banco perto das consultas pesadas dos relatórios. Ganho relativo maior nas rotas rápidas (`cliente`, por chave primária, mediana ~0,4 s).
+  - A memória do banco **sobe** (até 20 processos ficam vivos o tempo todo) e é o custo da mudança.
+  - O banco continua saturado.
+- **O que derrubaria a hipótese:** req/s e mediana sem mudança além da variação entre execuções. Nesse caso a conclusão seria "aplicada, sem ganho": nesta taxa de conexões o custo de abrir conexão não pesa, e o pool só se justificaria por outros motivos (limite de conexões, picos).
+- **Fonte da ideia:** F7 (processo por conexão no PostgreSQL), F8 (node-postgres: custo do handshake, padrões do `Pool`), F9 (HikariCP: tamanho do pool).
+- **Por que esta e não outra:** ver [Alternativas](#alternativas).
+- **Cuidado de robustez:** o pool emite `error` quando uma conexão ociosa cai (ex.: o banco reinicia, como no `coletar.sh`); sem um ouvinte o processo Node pode cair (F8). Incluir `pool.on('error', ...)` que só registra no log: a conexão já é descartada pelo próprio pool.
+- **Mudança:** `api/src/db.js` — commit `<preencher>`
+- **Custo esperado:** memória do banco (processos persistentes); nenhum serviço novo.
+- **Evidência a salvar:** `diagnostico/05-pool/` com a contagem de sessões numa carga igual à do `medir.sh`, antes (código do experimento 03) e depois
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 03 (pastas em [03-n-mais-1](#03-n-mais-1))
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -406,6 +432,9 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras nas rotas lent
 | F3 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.32 pg_stat_statements — track statistics of SQL planning and execution | https://www.postgresql.org/docs/16/pgstatstatements.html | 2026-11-05 | doc oficial | diagnóstico | "provides a means for tracking planning and execution statistics of all SQL statements executed by a server"; "must be loaded by adding pg_stat_statements to shared_preload_libraries [...] a server restart is needed"; `total_exec_time` = "Total time spent executing the statement, in milliseconds" |
 | F5 | GraphQL Foundation (repositório graphql/dataloader) | DataLoader — README, seção "Batching" | https://github.com/graphql/dataloader#batching | 2026-11-05 | técnica primária (doc de biblioteca) | N+1 / lote | "DataLoader will coalesce all individual loads which occur within a single frame of execution (a single tick of the event loop) and then call your batch function with all requested keys."; "A naive application may have issued four round-trips to a backend for the required information, but with DataLoader this application will make at most two." |
 | F6 | Rails Guides | Active Record Query Interface, 16.1 "N + 1 Queries Problem" | https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem | 2026-11-05 | doc oficial (caso de mercado/framework) | N+1 | **A conferir no navegador:** só o título da seção foi confirmado; o texto da seção (1 consulta + N consultas; `includes` reduz para 2) ainda não foi lido literalmente |
+| F7 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 52.2 How Connections Are Established | https://www.postgresql.org/docs/16/connect-estab.html | 2026-11-05 | doc oficial | conexões | "PostgreSQL implements a 'process per user' client/server model"; o postmaster "spawns a new backend process every time a connection is requested" |
+| F8 | node-postgres (Brian Carlson) | Pooling (#why) e API do Pool (#new-pool, #error) | https://node-postgres.com/features/pooling e https://node-postgres.com/apis/pool | 2026-11-05 | técnica primária (doc da biblioteca usada) | conexões | "Connecting a new client to the PostgreSQL server requires a handshake which can take 20-30 milliseconds"; "Incurring this cost every time we want to execute a query would substantially slow down our application"; `max` "By default this is set to 10"; `idleTimeoutMillis` padrão 10000; sem ouvinte de `error`, o Node "will emit an uncaught error and potentially crash your node process" |
+| F9 | Brett Wooldridge (HikariCP) | About Pool Sizing (wiki) | https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing | 2026-11-05 | técnica / caso de mercado (cita o projeto PostgreSQL e um vídeo da Oracle) | conexões | Fórmula atribuída ao projeto PostgreSQL: conexões ativas "somewhere near ((core_count * 2) + effective_spindle_count)"; "You want a small pool [...] and you want the rest of the application threads blocked on the pool"; exemplo da Oracle: reduzir só o pool levou a resposta "from ~100ms to ~2ms" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -419,6 +448,9 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P3 conexões | `pg.Pool` na API com `max: 20` (igual à concorrência atual) | nenhum serviço novo; memória do banco com conexões persistentes | elimina handshake e criação de processo por consulta | baixo; precisa de ouvinte de `error` | baixo | **escolhida** (experimento 04): isola o custo de conexão |
+| P3 conexões | `pg.Pool` pequeno (~2–4, fórmula do F9) | idem, menos memória | pode ser melhor: menos consultas brigando pela única CPU | médio: fila no pool; mexe também na concorrência | baixo | depois, como experimento separado (tamanho do pool) |
+| P3 conexões | PgBouncer (pooler externo) entre API e banco | serviço novo (CPU/memória, mais um container) | parecido com o pool na API para um único processo Node | médio: mais uma peça | médio | descartada: só compensa com várias instâncias da API; aqui é um processo só |
 | P2 N+1 | Cache de resposta por cliente (ex.: Redis) | serviço novo (CPU/memória) | alto só para clientes repetidos; a carga sorteia entre 100 mil | médio: invalidação | alto | descartada: não ataca a causa; a carga quase não repete cliente |
 
 ## Ideias não testadas
@@ -451,3 +483,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Leu a evidência e as 3 pastas do experimento 02, calculou medianas e variações, e escreveu a análise (previsões × resultado, autovacuum) | Números copiados de `diagnostico/03-...` e `resumo.txt`/`recursos.txt`; conferir contra os arquivos |
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 03, a tabela de alternativas do N+1 e sugeriu o código da nova rota; buscou fontes (F5 verificada; F6 só o título; artigo Chen et al. ICSE 2014 não abriu e ficou de fora) | Conferir F6 no navegador; código revisado por mim e validado pelo verificador de contrato |
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 03, calculou medianas e variações, analisou a piora do p95; investigou o aviso `Broken pipe` (checou todos os `recursos.csv`) | Números copiados de `resumo.txt`/`recursos.txt`; conferir contra as pastas |
+| 2026-11-05 | Claude Code | Abriu F7–F9, redigiu a hipótese do experimento 04 (incluindo a escolha `max: 20` para isolar a variável), alternativas do P3, o código sugerido do pool e o script de contagem de sessões | Citações conferidas pelos links; código validado pelo verificador de contrato |
