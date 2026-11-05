@@ -32,7 +32,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Linha de base medida 3 vezes, contrato mantido nas 3 | `ff30500` |
 | 2026-11-05 | `.idea/` no `.gitignore` (senão o `contexto.txt` acusaria arquivo sem commit) | `aff5380` |
 | 2026-11-05 | Diagnóstico inicial (EXPLAIN ANALYZE e outros, só leitura) | `diagnostico/00-inicial/` |
-| 2026-11-05 | Hipótese do experimento 01 (índices nas chaves estrangeiras) escrita antes da mudança | este diário |
+| 2026-11-05 | Hipótese do experimento 01 (índices nas chaves estrangeiras) escrita antes da mudança | `59460b4` |
+| 2026-11-05 | Experimento 01: índices criados, plano conferido, medido 3 vezes; +78% req/s, p95 −55% | `979c83c`, `09222ee`, `5b3c082` |
 
 ## Ambiente
 
@@ -72,7 +73,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 
 | # | Problema | Onde | Evidência (ocioso) | Hipótese de causa | Status |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: experimento 01 (planejado); `status`/`criado_em`: pendente |
+| P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | a investigar |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | a investigar |
@@ -112,7 +113,7 @@ Uma entrada por mudança, na ordem em que foram feitas. Copiar o modelo.
 
 ### 01-indices-fk
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — ganho confirmado
 - **Problema:** P1 (sem índices nas chaves estrangeiras), que agrava o P2 (N+1)
 - **Hipótese:** criar índices em `pedidos(cliente_id)` e `itens_pedido(pedido_id)` deve reduzir o p95 geral e aumentar as requisições por segundo, com o maior efeito na rota `pedidos-do-cliente`, porque hoje cada requisição dessa rota faz 6 leituras completas de tabela (1 em `pedidos`, 500 mil linhas, e 5 em `itens_pedido`, 1,5 milhão de linhas) para devolver 5 pedidos e 10 itens.
 - **Previsões que dá para conferir:**
@@ -123,14 +124,74 @@ Uma entrada por mudança, na ordem em que foram feitas. Copiar o modelo.
 - **O que derrubaria a hipótese:** o plano continuar com `Seq Scan` depois do índice, ou o p95 geral e as req/s não mudarem além da variação normal entre execuções (que pode passar de 30%).
 - **Fonte da ideia:** PostgreSQL 16, seção 5.4.5 (Foreign Keys): a declaração de chave estrangeira não cria índice automaticamente nas colunas que referenciam. Seção 11.1: sem índice o banco lê a tabela inteira, linha por linha. Ver [Fontes](#fontes) F1 e F2.
 - **Por que esta e não outra:** é a mudança de menor esforço e risco para o maior problema medido. Não muda código nem resposta, só o banco. O N+1 (P2) e o pool (P3) ficam para experimentos separados, para isolar o efeito de cada um.
-- **Mudança:** `banco/03-indices-chaves-estrangeiras.sql` com os dois `CREATE INDEX` e `ANALYZE` no fim — commit `<preencher>`
+- **Mudança:** `banco/03-indices-chaves-estrangeiras.sql` com os dois `CREATE INDEX` e `ANALYZE` no fim — commit `979c83c`. Evidência em `09222ee` (commit medido). Resultados em `5b3c082`.
 - **Custo esperado:** espaço em disco e memória dos índices (medir com `pg_relation_size`); escrita mais lenta em `INSERT`/`UPDATE` (a documentação, seção 11.1, chama de "overhead to data manipulation operations"). Esta API só lê, então o custo de escrita não aparece na medição: registrar como limite.
-- **Evidência a salvar:** `diagnostico/01-indices-fk/` com `EXPLAIN (ANALYZE, BUFFERS)` das duas consultas e o tamanho dos índices
-- **Contrato:** `<preencher>`
-- **Antes:** linha de base (pastas em [Linha de base](#linha-de-base))
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência do plano (banco ocioso, uma consulta por vez)
+
+Arquivos em `diagnostico/01-indices-fk/`; o "antes" vem de `diagnostico/00-inicial/saida.txt`.
+
+| Consulta | Antes | Depois | Plano |
+| --- | --- | --- | --- |
+| itens de um pedido (`pedido_id = 1000`) | 252,1 ms | 0,278 ms | `Parallel Seq Scan` (1,5 mi linhas) → `Index Scan using itens_pedido_pedido_id_idx`, 4 páginas lidas |
+| pedidos de um cliente (`cliente_id = 42`) | 142,7 ms | 0,456 ms | `Parallel Seq Scan` (500 mil linhas) → `Index Scan using pedidos_cliente_id_idx`, 8 páginas lidas |
+
+O `Planning Time` de 35 ms na primeira consulta é o cache de catálogo frio logo depois de recriar o banco; a segunda planejou em 2,3 ms.
+
+**Custo medido** (`tamanho-indices.txt`): `itens_pedido_pedido_id_idx` 21 MB + `pedidos_cliente_id_idx` 5.720 kB ≈ 26,7 MB a mais em disco, cerca de 10% dos ~281 MB das duas tabelas.
+
+#### Medição sob carga
+
+- **Contrato:** mantido nas 3 execuções (`contrato.txt`)
+- **Antes:** linha de base, mediana das 3 pastas em [Linha de base](#linha-de-base)
+- **Depois:** commit `09222ee`, pastas:
+  - [`resultados/20261105-172652-01-indices-fk`](../resultados/20261105-172652-01-indices-fk/resumo.txt)
+  - [`resultados/20261105-173051-01-indices-fk`](../resultados/20261105-173051-01-indices-fk/resumo.txt)
+  - [`resultados/20261105-173531-01-indices-fk`](../resultados/20261105-173531-01-indices-fk/resumo.txt)
+
+| Execução | req/s | mediana | p95 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 172652 | 2.73 | 2200.7 ms | 21153.9 ms | 0.00% | 100.9% | 391.8 MiB | 12.6% | 39.7 MiB |
+| 173051 | 2.65 | 2011.8 ms | 21642.0 ms | 0.52% | 97.6% | 380.2 MiB | 12.7% | 41.7 MiB |
+| 173531 | 2.95 | 1999.7 ms | 20898.2 ms | 0.00% | 95.5% | 383.4 MiB | 14.3% | 36.5 MiB |
+| **Mediana** | **2.73** | **2011.8 ms** | **21153.9 ms** | — | **97.6%** | **383.4 MiB** | **12.7%** | **39.7 MiB** |
+
+| Métrica (mediana das 3) | Linha de base | 01-indices-fk | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 1.53 | 2.73 | +78% |
+| p95 geral | 46763.0 ms | 21153.9 ms | −55% |
+| Mediana geral | 2478.8 ms | 2011.8 ms | −19% |
+| Banco CPU média | 98.5% | 97.6% | ≈ igual (continua no teto) |
+| Banco mem média | 396.2 MiB | 383.4 MiB | ≈ igual |
+| API CPU média | 7.0% | 12.7% | sobe junto com as req/s |
+| API mem média | 31.3 MiB | 39.7 MiB | sobe junto com as req/s |
+
+As faixas não se sobrepõem: linha de base 1.48–1.60 req/s e p95 45,3–47,1 s; depois 2.65–2.95 req/s e p95 20,9–21,6 s. A diferença é maior que a variação entre execuções.
+
+Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuidado):
+
+| Rota | Linha de base | 01-indices-fk |
+| --- | --- | --- |
+| `pedidos-do-cliente` | 41090.1 ms | 12604.5 ms (−69%) |
+| `cliente` | 896.2 ms | 696.0 ms |
+| `cliente-por-email` | 2498.9 ms | 2059.0 ms |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `Seq Scan` vira `Index Scan` | confirmada (`diagnostico/01-indices-fk/`) |
+| `pedidos-do-cliente` cai muito | confirmada: −69% na mediana, mas ainda ~12,6 s |
+| `cliente` e `cliente-por-email` melhoram indiretamente | parcialmente: melhora de ~20%, pequena perto da variação |
+| `top-produtos` e `vendas-por-dia` mudam pouco | confirmada; os p95 dessas rotas até subiram em algumas execuções (ver abaixo) |
+| Banco continua perto de 100% de CPU | confirmada: 95,5–100,9% |
+
+- **Conclusão:** aplicada e medida, com ganho. Dobrou quase a vazão (+78% req/s) e cortou o p95 geral pela metade, sem mudar código nem resposta, ao custo de ~26,7 MB de índice. A hipótese se sustentou.
+- **Gargalo que apareceu depois:**
+  - O banco segue saturado (~98% de CPU). As consultas por chave estrangeira agora levam menos de 1 ms ociosas, mas `pedidos-do-cliente` ainda leva ~12,6 s sob carga: o tempo agora é fila no banco ocupado pelas outras rotas, somado às 17 consultas com 17 conexões novas por requisição (P2 e P3).
+  - As rotas sem índice (`pedidos-por-status`, `vendas-por-dia`, `top-produtos`) viraram o peso principal. Elas foram chamadas mais vezes (ex.: `vendas-por-dia` 8–9 → 14–15 requisições por execução), porque a carga é de ciclo fechado: cada usuário virtual dispara a próxima requisição assim que a anterior volta, então rotas mais rápidas liberam os usuários para pedir mais rotas pesadas. Por isso os p95 dessas rotas não melhoraram e às vezes pioraram.
+  - Uma requisição de `top-produtos` estourou o timeout de 60 s na execução 173051 (33,3% de erro na rota = 1 de 3).
+- **Próximo passo sugerido:** descobrir qual consulta consome mais CPU do banco agora (ex.: `pg_stat_statements`) antes de escolher entre P4/P5 (`/pedidos`), P2 (N+1) e P3 (pool).
 
 ## Fontes
 
@@ -156,6 +217,10 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 
 - Medições na mesma máquina Windows/WSL com Docker Desktop; variação entre execuções pode passar de 30%.
 - Diagnóstico inicial feito com banco ocioso, não sob carga.
+- Todas as medições (linha de base inclusive) rodaram pelo terminal do WebStorm, com a IDE aberta. A atividade de fundo da IDE (indexação, leitura de arquivos pelo `\\wsl.localhost`) pode somar ruído; não foi isolada. Indícios de que o efeito foi pequeno: o banco usou ~96–101% da cota de CPU em todas as execuções e a variação entre execuções ficou abaixo de 10% (linha de base: 1.48–1.60 req/s).
+- `cpu_max` no `recursos.txt` não é confiável: aparece menor que `cpu_media` (ex.: banco 100.9% de média e 99.9% de máximo; API 12.7% de média e 9.8% de máximo). Provável comparação de texto em vez de número no `awk` do `medir.sh`, que não pode ser alterado. Usar só `cpu_media`.
+- A carga do k6 é de ciclo fechado (cada usuário só pede a próxima depois da resposta anterior): melhorar uma rota aumenta o número de chamadas das outras, então o tempo por rota de rotas não alteradas pode piorar. Comparar pelo resultado geral.
+- Custo de escrita dos índices (INSERT/UPDATE mais lentos) não aparece aqui: a API só lê.
 
 ## Uso de IA
 
@@ -165,3 +230,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Escreveu e rodou `diagnostico/00-inicial/diag.sh` (só leitura) e listou os problemas P1–P12 | Saída bruta salva em `diagnostico/00-inicial/saida.txt`; conferir cada número contra o arquivo |
 | 2026-11-05 | Claude Code | Criou este diário e o `.gitignore` | Revisado por mim |
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 01 e abriu as fontes F1 e F2 para extrair as citações | Conferir as citações nos links |
+| 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 01, calculou as medianas e escreveu a análise (previsões × resultado, ciclo fechado, `cpu_max`) | Números copiados de `resumo.txt` e `recursos.txt`; conferir contra as pastas |
