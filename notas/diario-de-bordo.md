@@ -34,6 +34,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Diagnóstico inicial (EXPLAIN ANALYZE e outros, só leitura) | `diagnostico/00-inicial/` |
 | 2026-11-05 | Hipótese do experimento 01 (índices nas chaves estrangeiras) escrita antes da mudança | `59460b4` |
 | 2026-11-05 | Experimento 01: índices criados, plano conferido, medido 3 vezes; +78% req/s, p95 −55% | `979c83c`, `09222ee`, `5b3c082` |
+| 2026-11-05 | Diagnóstico 02 com `pg_stat_statements`: `/pedidos` = 46,5% do tempo do banco | `4aef666`, `f4ff869` |
+| 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | este diário |
 
 ## Ambiente
 
@@ -76,8 +78,8 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | a investigar |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
-| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | a investigar |
-| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | a investigar |
+| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | confirmado sob carga (Diagnóstico 02: 30,3% do tempo do banco); experimento 02 planejado |
+| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | confirmado sob carga (Diagnóstico 02: 16,2%); parte do experimento 02 |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | a investigar |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | a investigar |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | a investigar |
@@ -88,7 +90,35 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 
 Cuidados de contrato ao mexer: manter ordem (`criado_em DESC, id DESC`, `nome, id`, `receita DESC, id`), tipos (somas passam por `Number(...)`), e os casos de erro (`pagina=0`, `2024-02-30`, período invertido, `limite=0`/`51`).
 
-Ainda não verificado: qual consulta consome mais tempo total **sob carga** (`pg_stat_statements` confirmaria ou mudaria a ordem de prioridade).
+Ainda não verificado: qual consulta consome mais tempo total **sob carga** (`pg_stat_statements` confirmaria ou mudaria a ordem de prioridade). Feito depois do experimento 01: ver [Diagnóstico 02](#diagnóstico-02-onde-o-banco-gasta-tempo-sob-carga-depois-do-experimento-01).
+
+## Diagnóstico 02: onde o banco gasta tempo sob carga (depois do experimento 01)
+
+Evidência: [`diagnostico/02-pg-stat-statements/`](../diagnostico/02-pg-stat-statements/). O `coletar.sh` liga o `pg_stat_statements` só durante a coleta (arquivo de compose à parte, usado com `-f`, para não contaminar o `medir.sh`), aquece, zera os contadores, roda a mesma carga do `medir.sh` (20 VUs, 60 s, semente 42), salva o ranking e devolve o banco à configuração normal (extensão removida, `shared_preload_libraries` vazio — conferido depois). Commits `4aef666` (script) e `f4ff869` (saída). Estado do código: experimento 01 aplicado.
+
+Fonte do método: F3 (o módulo registra estatísticas de planejamento e execução de todas as consultas; precisa estar em `shared_preload_libraries` e exige reinício do servidor).
+
+Soma do `total_exec_time` de todas as consultas: ~557 s em 60 s de carga, ou seja, em média ~9 consultas em andamento ao mesmo tempo num banco de 1 CPU: a maior parte desse tempo é espera na fila.
+
+| Rota (peso na carga) | % do tempo do banco | Consulta principal (`ranking.txt`) | Média por chamada |
+| --- | --- | --- | --- |
+| `/pedidos?status=` (15%) | **46,5%** | página com `OFFSET` 30,3% + `count(*)` 16,2% | 6.753,8 ms + 3.611,0 ms |
+| `vendas-por-dia` (8%) | 24,4% | join que devolve ~12.900 linhas por chamada (168.037 linhas em 13 chamadas) | 10.463,1 ms |
+| `top-produtos` (2%) | 12,4% | agregação completa | 23.096,1 ms |
+| `cliente-por-email` (15%) | 9,8% | `lower(email)` sem índice | 1.552,1 ms |
+| `busca-produtos` (15%) | 3,2% | `ILIKE` | 526,9 ms |
+| `pedidos-do-cliente` (20%) | ~3% | as 4 consultas indexadas no experimento 01 | 6,1 a 97,3 ms |
+| `cliente` (25%) | ~0,6% | chave primária | 61,5 ms |
+
+Leitura (fatos do `ranking.txt` e hipóteses separadas):
+
+- **Fato:** a consulta de página de `/pedidos` escreveu 88.734 blocos temporários (~693 MB em disco em 25 chamadas, ~28 MB cada): a ordenação em disco do diagnóstico inicial se confirma sob carga. O `count(*)` leu 423.430 blocos do disco em 25 chamadas.
+- **Fato:** `pedidos-do-cliente` usa ~3% do tempo de consulta do banco, mas leva 12,4 s de mediana (`carga.txt`). Em 46 requisições houve ~1.000 consultas (46 em `pedidos`, 230 em `itens_pedido`, 675 em `produtos`, mais os clientes): o N+1. A busca de itens por `pedido_id`, que leva 0,28 ms com o banco ocioso, teve média de 24,8 ms aqui.
+- **Hipótese:** o tempo dessa rota é fila. Ela faz ~22 consultas em sequência, cada uma esperando a vez num banco saturado pelas rotas de `/pedidos` e relatórios.
+- **Não medido:** o custo de abrir conexão (P3) não aparece no `pg_stat_statements` (não é consulta). ~950 das ~1.185 consultas da execução vêm do N+1, cada uma com conexão nova, então o custo real do N+1 no banco é maior que os ~3%.
+- **Limites:** uma execução só; `total_exec_time` é tempo decorrido (inclui espera por CPU), não CPU pura; a coleta roda com o `pg_stat_statements` ligado, que tem custo próprio (a carga deu 2,96 req/s, na faixa do experimento 01, sem sinal de custo grande).
+
+**Decisão:** atacar `/pedidos` antes do N+1. Motivos: (1) é o maior consumidor do recurso saturado; com a fila mais curta todas as rotas esperam menos, inclusive as 22 consultas do N+1; (2) resolver o N+1 primeiro aceleraria muito aquela rota, mas aliviaria pouco o banco, e na carga de ciclo fechado os usuários liberados iriam pedir mais `/pedidos` e relatórios; (3) um arquivo `.sql`, sem mudar código, risco quase nulo para o contrato; o N+1 exige reescrever a rota mantendo ordem, totais e formato. **A favor do N+1 primeiro** (registrado para o artigo): o custo de conexão escondido e o maior efeito numa rota que é 20% da carga. N+1 e pool ficam como próximos passos, depois de um novo ranking.
 
 ## Experimentos
 
@@ -191,7 +221,31 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
   - O banco segue saturado (~98% de CPU). As consultas por chave estrangeira agora levam menos de 1 ms ociosas, mas `pedidos-do-cliente` ainda leva ~12,6 s sob carga: o tempo agora é fila no banco ocupado pelas outras rotas, somado às 17 consultas com 17 conexões novas por requisição (P2 e P3).
   - As rotas sem índice (`pedidos-por-status`, `vendas-por-dia`, `top-produtos`) viraram o peso principal. Elas foram chamadas mais vezes (ex.: `vendas-por-dia` 8–9 → 14–15 requisições por execução), porque a carga é de ciclo fechado: cada usuário virtual dispara a próxima requisição assim que a anterior volta, então rotas mais rápidas liberam os usuários para pedir mais rotas pesadas. Por isso os p95 dessas rotas não melhoraram e às vezes pioraram.
   - Uma requisição de `top-produtos` estourou o timeout de 60 s na execução 173051 (33,3% de erro na rota = 1 de 3).
-- **Próximo passo sugerido:** descobrir qual consulta consome mais CPU do banco agora (ex.: `pg_stat_statements`) antes de escolher entre P4/P5 (`/pedidos`), P2 (N+1) e P3 (pool).
+- **Próximo passo sugerido:** descobrir qual consulta consome mais CPU do banco agora (ex.: `pg_stat_statements`) antes de escolher entre P4/P5 (`/pedidos`), P2 (N+1) e P3 (pool). Feito: [Diagnóstico 02](#diagnóstico-02-onde-o-banco-gasta-tempo-sob-carga-depois-do-experimento-01).
+
+### 02-indice-pedidos-status
+
+- **Status:** planejado (hipótese escrita antes da mudança)
+- **Problema:** P4 (paginação ordena em disco) e, em parte, P5 (`count(*)` lê a tabela inteira). Juntas são 46,5% do tempo do banco sob carga (Diagnóstico 02).
+- **Hipótese:** um índice em `pedidos(status, criado_em DESC, id DESC)` deve reduzir o p95 geral e aumentar as req/s, porque a consulta de página passa a ler as linhas já na ordem do `ORDER BY` em vez de ordenar 100–300 mil linhas em disco a cada chamada; o `count(*)` pode ficar mais barato lendo o índice (menor) em vez da tabela de 174 MB.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN` da página: some o `Sort` com `external merge Disk`; aparece `Index Scan` (ou `Index Scan Backward`) no novo índice.
+  - `EXPLAIN` do `count(*)`: usa o índice. Se for `Index Only Scan` com muitos `Heap Fetches`, o mapa de visibilidade ainda não está preenchido (o `02-dados.sql` só roda `ANALYZE`, não `VACUUM`): isso vira um experimento separado.
+  - `pedidos-por-status` cai muito, mas não some: o `OFFSET` ainda percorre até 19.980 entradas do índice e o `count(*)` até 300 mil.
+  - **`pedidos-do-cliente` melhora sem ser tocada**, por esperar menos na fila do banco. Se não melhorar, é sinal de que o custo de conexão e o N+1 pesam mais do que o Diagnóstico 02 sugere.
+  - O banco pode continuar saturado, agora puxado por `vendas-por-dia` e `top-produtos`.
+- **O que derrubaria a hipótese:** o plano continuar com `Sort` em disco, ou req/s e p95 geral sem mudança além da variação entre execuções.
+- **Fonte da ideia:** F4 (PostgreSQL 16, 11.4: o índice que casa com o `ORDER BY` dispensa a ordenação e, com `LIMIT`, permite pegar as primeiras linhas "without scanning the remainder at all"; um B-tree pode ser lido de trás para frente para `ORDER BY ... DESC`).
+- **Por que esta e não outra:** maior consumidor do recurso saturado, menor esforço e risco (ver Diagnóstico 02). Alternativas para o `OFFSET` (paginação por cursor/keyset) mudariam a API e quebrariam o contrato; contagem em cache ou tabela de contadores fica para depois, se o `count(*)` continuar pesado.
+- **Uma variável só:** sem `VACUUM` neste experimento, para não misturar o efeito do índice com o do mapa de visibilidade (o `VACUUM` afetaria todas as tabelas).
+- **Mudança:** `banco/04-indice-pedidos-status.sql` — commit `<preencher>`
+- **Custo esperado:** tamanho do índice (medir); escrita mais lenta (não aparece aqui, a API só lê).
+- **Evidência a salvar:** `diagnostico/03-indice-pedidos-status/` com `EXPLAIN (ANALYZE, BUFFERS)` da página (offset 0 e 19.980) e do `count(*)`, tamanho dos índices e `last_autovacuum` das tabelas
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 01 (pastas em [01-indices-fk](#01-indices-fk))
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
 
 ## Fontes
 
@@ -199,6 +253,8 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | F1 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 5.4.5 Foreign Keys | https://www.postgresql.org/docs/16/ddl-constraints.html#DDL-CONSTRAINTS-FK | 2026-11-05 | doc oficial | índices | "the declaration of a foreign key constraint does not automatically create an index on the referencing columns"; recomenda indexar essas colunas ("it is often a good idea to index the referencing columns too") |
 | F2 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.1 Introduction (Indexes) | https://www.postgresql.org/docs/16/indexes-intro.html | 2026-11-05 | doc oficial | índices | Sem índice o sistema "would have to scan the entire test1 table, row by row"; o índice precisa ser mantido sincronizado com a tabela, o que "adds overhead to data manipulation operations" |
+| F3 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.32 pg_stat_statements — track statistics of SQL planning and execution | https://www.postgresql.org/docs/16/pgstatstatements.html | 2026-11-05 | doc oficial | diagnóstico | "provides a means for tracking planning and execution statistics of all SQL statements executed by a server"; "must be loaded by adding pg_stat_statements to shared_preload_libraries [...] a server restart is needed"; `total_exec_time` = "Total time spent executing the statement, in milliseconds" |
+| F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
 
@@ -231,3 +287,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Criou este diário e o `.gitignore` | Revisado por mim |
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 01 e abriu as fontes F1 e F2 para extrair as citações | Conferir as citações nos links |
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 01, calculou as medianas e escreveu a análise (previsões × resultado, ciclo fechado, `cpu_max`) | Números copiados de `resumo.txt` e `recursos.txt`; conferir contra as pastas |
+| 2026-11-05 | Claude Code | Sugeriu o método do Diagnóstico 02 (script `coletar.sh` e compose à parte), analisou o `ranking.txt`, argumentou a ordem `/pedidos` antes do N+1, abriu F3 e F4 e redigiu a hipótese do experimento 02 | Script e saída no repositório; conferir números contra `ranking.txt` e citações nos links |
