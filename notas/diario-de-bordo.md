@@ -35,7 +35,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Hipótese do experimento 01 (índices nas chaves estrangeiras) escrita antes da mudança | `59460b4` |
 | 2026-11-05 | Experimento 01: índices criados, plano conferido, medido 3 vezes; +78% req/s, p95 −55% | `979c83c`, `09222ee`, `5b3c082` |
 | 2026-11-05 | Diagnóstico 02 com `pg_stat_statements`: `/pedidos` = 46,5% do tempo do banco | `4aef666`, `f4ff869` |
-| 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | este diário |
+| 2026-11-05 | Hipótese do experimento 02 (índice `status, criado_em, id`) escrita antes da mudança | `1f5b233` |
+| 2026-11-05 | Experimento 02: índice criado, plano conferido, medido 3 vezes; +42% req/s e p95 −18% sobre o 01 | `4640d9c`, `e8bafec`, `b8357ef` |
 
 ## Ambiente
 
@@ -78,8 +79,8 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | a investigar |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | a investigar |
-| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | confirmado sob carga (Diagnóstico 02: 30,3% do tempo do banco); experimento 02 planejado |
-| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | confirmado sob carga (Diagnóstico 02: 16,2%); parte do experimento 02 |
+| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
+| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | a investigar |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | a investigar |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | a investigar |
@@ -225,7 +226,7 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 
 ### 02-indice-pedidos-status
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — ganho confirmado
 - **Problema:** P4 (paginação ordena em disco) e, em parte, P5 (`count(*)` lê a tabela inteira). Juntas são 46,5% do tempo do banco sob carga (Diagnóstico 02).
 - **Hipótese:** um índice em `pedidos(status, criado_em DESC, id DESC)` deve reduzir o p95 geral e aumentar as req/s, porque a consulta de página passa a ler as linhas já na ordem do `ORDER BY` em vez de ordenar 100–300 mil linhas em disco a cada chamada; o `count(*)` pode ficar mais barato lendo o índice (menor) em vez da tabela de 174 MB.
 - **Previsões que dá para conferir:**
@@ -238,14 +239,79 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuid
 - **Fonte da ideia:** F4 (PostgreSQL 16, 11.4: o índice que casa com o `ORDER BY` dispensa a ordenação e, com `LIMIT`, permite pegar as primeiras linhas "without scanning the remainder at all"; um B-tree pode ser lido de trás para frente para `ORDER BY ... DESC`).
 - **Por que esta e não outra:** maior consumidor do recurso saturado, menor esforço e risco (ver Diagnóstico 02). Alternativas para o `OFFSET` (paginação por cursor/keyset) mudariam a API e quebrariam o contrato; contagem em cache ou tabela de contadores fica para depois, se o `count(*)` continuar pesado.
 - **Uma variável só:** sem `VACUUM` neste experimento, para não misturar o efeito do índice com o do mapa de visibilidade (o `VACUUM` afetaria todas as tabelas).
-- **Mudança:** `banco/04-indice-pedidos-status.sql` — commit `<preencher>`
+- **Mudança:** `banco/04-indice-pedidos-status.sql` (`CREATE INDEX pedidos_status_criado_em_id_idx ON pedidos (status, criado_em DESC, id DESC)` + `ANALYZE`) — commit `4640d9c`. Evidência em `e8bafec` (commit medido).
 - **Custo esperado:** tamanho do índice (medir); escrita mais lenta (não aparece aqui, a API só lê).
-- **Evidência a salvar:** `diagnostico/03-indice-pedidos-status/` com `EXPLAIN (ANALYZE, BUFFERS)` da página (offset 0 e 19.980) e do `count(*)`, tamanho dos índices e `last_autovacuum` das tabelas
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 01 (pastas em [01-indices-fk](#01-indices-fk))
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência do plano (banco ocioso, uma consulta por vez)
+
+Arquivos em `diagnostico/03-indice-pedidos-status/`; o "antes" vem de `diagnostico/00-inicial/saida.txt` (sem nenhum índice novo; os índices do experimento 01 não afetam estas consultas).
+
+| Consulta (`status = 'pago'`) | Antes | Depois | Plano |
+| --- | --- | --- | --- |
+| página 1 (`OFFSET 0`) | não medida no inicial | 0,703 ms | `Index Scan using pedidos_status_criado_em_id_idx`, 23 páginas lidas, sem `Sort` |
+| página 1000 (`OFFSET 19980`) | 1.085,2 ms, `Sort` `external merge` em disco (~30 MB por worker) | 76,5 ms | `Index Scan` no novo índice, percorre 20.000 linhas, sem `Sort` |
+| `count(*)` | 287,7 ms, `Parallel Seq Scan` | 234,0 ms | `Parallel Index Only Scan`, `Heap Fetches: 0`, 1.486 páginas em vez de ~20.800 |
+
+- O `count(*)` usa o índice e não visita a tabela (`Heap Fetches: 0`), mas ficou só ~19% mais rápido: ainda conta 300 mil entradas a cada requisição. P5 continua aberto.
+- `Heap Fetches: 0` porque o autovacuum já tinha rodado sozinho em todas as tabelas ~50 s depois da carga dos dados (`vacuum.txt`: `last_autovacuum` de `pedidos` 21:54:56 UTC; `ANALYZE` 21:54:08). Ou seja, o mapa de visibilidade foi preenchido sem `VACUUM` explícito, e o experimento separado com `VACUUM` previsto na hipótese perdeu o sentido. A primeira medição começou às 18:57:15 local (21:57:15 UTC), depois do autovacuum.
+
+**Custo medido** (`tamanho-indices.txt`): `pedidos_status_criado_em_id_idx` 21 MB. Somando o experimento 01, os índices novos ocupam ~47,7 MB.
+
+#### Medição sob carga
+
+- **Contrato:** mantido nas 3 execuções (`contrato.txt`)
+- **Antes:** experimento 01 (mediana das 3 pastas em [01-indices-fk](#01-indices-fk))
+- **Depois:** commit `e8bafec`, pastas:
+  - [`resultados/20261105-185715-02-indice-pedidos-status`](../resultados/20261105-185715-02-indice-pedidos-status/resumo.txt)
+  - [`resultados/20261105-190052-02-indice-pedidos-status`](../resultados/20261105-190052-02-indice-pedidos-status/resumo.txt)
+  - [`resultados/20261105-190307-02-indice-pedidos-status`](../resultados/20261105-190307-02-indice-pedidos-status/resumo.txt)
+
+| Execução | req/s | mediana | p95 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 185715 | 4.03 | 1683.6 ms | 16235.9 ms | 0.00% | 99.9% | 412.2 MiB | 16.6% | 39.2 MiB |
+| 190052 | 3.66 | 1895.8 ms | 17501.3 ms | 0.00% | 95.9% | 412.9 MiB | 14.8% | 40.2 MiB |
+| 190307 | 3.87 | 1800.9 ms | 17306.0 ms | 0.00% | 94.5% | 416.3 MiB | 14.9% | 39.2 MiB |
+| **Mediana** | **3.87** | **1800.9 ms** | **17306.0 ms** | — | **95.9%** | **412.9 MiB** | **14.9%** | **39.2 MiB** |
+
+| Métrica (mediana das 3) | Linha de base | 01-indices-fk | 02-indice-pedidos-status | 02 vs 01 | 02 vs base |
+| --- | --- | --- | --- | --- | --- |
+| Requisições/s | 1.53 | 2.73 | 3.87 | +42% | +153% |
+| p95 geral | 46763.0 ms | 21153.9 ms | 17306.0 ms | −18% | −63% |
+| Mediana geral | 2478.8 ms | 2011.8 ms | 1800.9 ms | −10% | −27% |
+| Banco CPU média | 98.5% | 97.6% | 95.9% | ≈ igual (no teto) | ≈ igual |
+| Banco mem média | 396.2 MiB | 383.4 MiB | 412.9 MiB | +29,5 MiB | +16,7 MiB |
+| API CPU média | 7.0% | 12.7% | 14.9% | sobe com as req/s | sobe com as req/s |
+| API mem média | 31.3 MiB | 39.7 MiB | 39.2 MiB | ≈ igual | +7,9 MiB |
+
+Faixas sem sobreposição com o experimento 01: req/s 2.65–2.95 → 3.66–4.03; p95 20,9–21,6 s → 16,2–17,5 s.
+
+A memória do banco subiu ~30 MiB em relação ao experimento 01. **Hipótese** (não verificada): o índice novo, de 21 MB, passa a ocupar cache. Ainda dentro do limite de 512 MB.
+
+Por rota (mediana das medianas das 3 execuções; poucas amostras, usar com cuidado):
+
+| Rota | 01-indices-fk | 02-indice-pedidos-status | Variação |
+| --- | --- | --- | --- |
+| `pedidos-por-status` | 10848.1 ms | 3423.8 ms | −68% |
+| `pedidos-do-cliente` | 12604.5 ms | 10103.5 ms | −20% (faixas sem sobreposição: 11,9–13,0 s → 10,1–10,3 s) |
+| `cliente` | 696.0 ms | 551.3 ms | −21% |
+| `cliente-por-email` | 2059.0 ms | 1906.3 ms | −7% |
+| `busca-produtos` | 1147.3 ms | 1007.3 ms | −12% |
+| `vendas-por-dia` | 11050.2 ms | 14590.1 ms | +32% (mais chamadas: 14–15 → 18–20 por execução) |
+| `top-produtos` | 31794.7 ms | 31108.2 ms | ≈ igual |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| Some o `Sort` em disco; aparece `Index Scan` no novo índice | confirmada (página 1000: 1.085 ms → 76,5 ms ocioso) |
+| `count(*)` usa o índice; `VACUUM` separado se houver muitos `Heap Fetches` | usa (`Index Only Scan`, `Heap Fetches: 0` graças ao autovacuum), mas ganhou pouco (−19% ocioso) |
+| `pedidos-por-status` cai muito, sem sumir | confirmada: −68% na mediana, ainda 3,4 s; p95 13–17 s |
+| `pedidos-do-cliente` melhora sem ser tocada | confirmada, mas modesta (−20%): a fila menor ajuda, e a maior parte dos ~10 s continua. Coerente com o N+1 e as conexões pesarem bastante por conta própria |
+| Banco continua saturado, puxado pelos relatórios | banco a 94,5–99,9%; `vendas-por-dia` piorou com mais chamadas (ciclo fechado). Falta um ranking novo para confirmar quem domina agora |
+
+- **Conclusão:** aplicada e medida, com ganho. +42% req/s e −18% de p95 sobre o experimento 01, sem mudar código nem resposta, ao custo de 21 MB de índice e ~30 MiB a mais de memória média no banco. A hipótese se sustentou para a paginação; o `count(*)` continua caro.
+- **Gargalo que apareceu depois (hipóteses, a confirmar com novo ranking):** `vendas-por-dia` e `top-produtos` (que já eram 37% do tempo do banco no Diagnóstico 02), o `count(*)` de `/pedidos`, e o N+1 + conexões de `pedidos-do-cliente`, que segue como a rota mais lenta entre as de maior peso (~10 s).
+- **Próximo passo sugerido:** novo ranking com `pg_stat_statements` sobre o experimento 02, sem sobrescrever o ranking do Diagnóstico 02.
 
 ## Fontes
 
@@ -277,6 +343,7 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 - `cpu_max` no `recursos.txt` não é confiável: aparece menor que `cpu_media` (ex.: banco 100.9% de média e 99.9% de máximo; API 12.7% de média e 9.8% de máximo). Provável comparação de texto em vez de número no `awk` do `medir.sh`, que não pode ser alterado. Usar só `cpu_media`.
 - A carga do k6 é de ciclo fechado (cada usuário só pede a próxima depois da resposta anterior): melhorar uma rota aumenta o número de chamadas das outras, então o tempo por rota de rotas não alteradas pode piorar. Comparar pelo resultado geral.
 - Custo de escrita dos índices (INSERT/UPDATE mais lentos) não aparece aqui: a API só lê.
+- O autovacuum roda sozinho ~50 s depois de o banco ser recriado (`diagnostico/03-indice-pedidos-status/vacuum.txt`). Se uma medição começar antes disso, o autovacuum pode rodar durante a carga e os planos podem mudar (ex.: `Heap Fetches` no `count(*)`). Esperar o banco assentar depois de `down -v && up` antes de medir.
 
 ## Uso de IA
 
@@ -288,3 +355,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 01 e abriu as fontes F1 e F2 para extrair as citações | Conferir as citações nos links |
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 01, calculou as medianas e escreveu a análise (previsões × resultado, ciclo fechado, `cpu_max`) | Números copiados de `resumo.txt` e `recursos.txt`; conferir contra as pastas |
 | 2026-11-05 | Claude Code | Sugeriu o método do Diagnóstico 02 (script `coletar.sh` e compose à parte), analisou o `ranking.txt`, argumentou a ordem `/pedidos` antes do N+1, abriu F3 e F4 e redigiu a hipótese do experimento 02 | Script e saída no repositório; conferir números contra `ranking.txt` e citações nos links |
+| 2026-11-05 | Claude Code | Leu a evidência e as 3 pastas do experimento 02, calculou medianas e variações, e escreveu a análise (previsões × resultado, autovacuum) | Números copiados de `diagnostico/03-...` e `resumo.txt`/`recursos.txt`; conferir contra os arquivos |
