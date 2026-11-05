@@ -1,0 +1,15 @@
+ calls | total_ms | pct_tempo | media_ms |  rows  | shared_blks_hit | shared_blks_read | temp_blks_written |                                                                   consulta                                                                   
+-------+----------+-----------+----------+--------+-----------------+------------------+-------------------+----------------------------------------------------------------------------------------------------------------------------------------------
+    25 |   168846 |      30.3 |   6753.8 |    500 |          102405 |           420272 |             88734 | SELECT * FROM pedidos WHERE status = $1 ORDER BY criado_em DESC, id DESC LIMIT $2 OFFSET $3
+    13 |   136020 |      24.4 |  10463.1 | 168037 |          262837 |           232756 |                 0 | SELECT p.id AS pedido_id, p.criado_em, p.observacoes, i.quantidade, i.preco_unitario_centavos FROM pedidos p JOIN itens_pedido i ON i.pedido
+    25 |    90274 |      16.2 |   3611.0 |     25 |           97420 |           423430 |                 0 | SELECT count(*) AS total FROM pedidos WHERE status = $1
+     3 |    69288 |      12.4 |  23096.1 |     30 |           35267 |            57067 |                 0 | SELECT pr.id, pr.nome, pr.categoria, sum(i.quantidade) AS unidades, sum(i.quantidade * i.preco_unitario_centavos) AS receita_centavos FROM i
+    35 |    54322 |       9.8 |   1552.1 |     35 |           40565 |                0 |                 0 | SELECT * FROM clientes WHERE lower(email) = lower($1) ORDER BY id
+    34 |    17916 |       3.2 |    526.9 |    680 |            6664 |                0 |                 0 | SELECT * FROM produtos WHERE nome ILIKE $2 || $1 || $3 ORDER BY nome, id LIMIT $4
+    99 |     6091 |       1.1 |     61.5 |     99 |             216 |               81 |                 0 | SELECT * FROM clientes WHERE id = $1
+   230 |     5695 |       1.0 |     24.8 |    675 |            1456 |              155 |                 0 | SELECT * FROM itens_pedido WHERE pedido_id = $1 ORDER BY id
+    46 |     4474 |       0.8 |     97.3 |    230 |             418 |              226 |                 0 | SELECT * FROM pedidos WHERE cliente_id = $1 ORDER BY criado_em DESC, id DESC
+   675 |     4127 |       0.7 |      6.1 |    675 |            1988 |               37 |                 0 | SELECT * FROM produtos WHERE id = $1
+     1 |        0 |       0.0 |      0.3 |      1 |               0 |                0 |                 0 | SELECT pg_stat_statements_reset()
+(11 rows)
+
