@@ -1,0 +1,25 @@
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=72.08..72.11 rows=15 width=61) (actual time=0.483..0.486 rows=10 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC, i.id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=64
+   ->  Nested Loop Left Join  (cost=1.14..71.78 rows=15 width=61) (actual time=0.145..0.397 rows=10 loops=1)
+         Buffers: shared hit=58
+         ->  Nested Loop Left Join  (cost=0.85..67.20 rows=15 width=34) (actual time=0.115..0.323 rows=10 loops=1)
+               Buffers: shared hit=28
+               ->  Index Scan using pedidos_cliente_id_idx on pedidos p  (cost=0.42..24.51 rows=5 width=18) (actual time=0.067..0.112 rows=5 loops=1)
+                     Index Cond: (cliente_id = 42)
+                     Buffers: shared hit=8
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..8.50 rows=4 width=20) (actual time=0.039..0.040 rows=2 loops=5)
+                     Index Cond: (pedido_id = p.id)
+                     Buffers: shared hit=20
+         ->  Index Scan using produtos_pkey on produtos pr  (cost=0.29..0.31 rows=1 width=31) (actual time=0.007..0.007 rows=1 loops=10)
+               Index Cond: (id = i.produto_id)
+               Buffers: shared hit=30
+ Planning:
+   Buffers: shared hit=299
+ Planning Time: 2.079 ms
+ Execution Time: 3.006 ms
+(21 rows)
+
