@@ -1,0 +1,6 @@
+commit: a68bdfb
+sessoes antes: 8407
+sessoes depois: 8456
+diferenca: 49 (inclui as conexoes do proprio psql desta contagem)
+Requisições:        320
+Requisições/s:      3.95

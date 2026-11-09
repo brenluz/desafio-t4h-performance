@@ -1,0 +1,6 @@
+commit: f54c2ba
+sessoes antes: 7444
+sessoes depois: 8362
+diferenca: 918 (inclui as conexoes do proprio psql desta contagem)
+Requisições:        340
+Requisições/s:      4.85

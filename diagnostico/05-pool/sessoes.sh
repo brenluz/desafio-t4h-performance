@@ -11,9 +11,6 @@ antes=$(sessoes)
 docker compose run --rm -e VUS=20 -e DURACAO=60s -e SEMENTE=42 carga run --quiet /carga/teste-carga.js > "${SAIDA%.txt}-carga.txt"
 depois=$(sessoes)
 
-docker compose run --rm -e VUS=20 -e DURACAO=60s -e SEMENTE=42 carga run --quiet /carga/teste-carga.js > "${SAIDA%.txt}-carga.txt"
-depois=$(sessoes)
-
 {
   echo "commit: $(git rev-parse --short HEAD)"
   echo "sessoes antes: $antes"
