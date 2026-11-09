@@ -42,6 +42,7 @@ Regras que valem aqui também:
 | 2026-11-05 | Decidido fazer o pool de conexões antes dos relatórios; hipótese do experimento 04 escrita antes da mudança | `c60aa28` |
 | 2026-11-05 | Pool implementado; contagem de sessões antes e depois (918 → 49) | `f54c2ba`, `a68bdfb`, `c9cb474` |
 | 2026-11-09 | Primeiras medições do 04 descartadas (arquivos sem commit e dias diferentes); experimento 03 remedido e 04 medido na mesma sessão: +11,7% req/s, mediana −62% | `4cb8796`, pastas de 09/11 |
+| 2026-11-09 | Pré-teste dos índices para `vendas-por-dia` (com `ROLLBACK`); hipótese do experimento 05 escrita antes da mudança | `diagnostico/06-vendas-por-dia/`, este diário |
 
 ## Ambiente
 
@@ -86,7 +87,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
-| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | a investigar |
+| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | pré-teste feito; experimento 05 planejado (índice de expressão); agregação no SQL fica para depois |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | a investigar |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | a investigar |
 | P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | a investigar |
@@ -507,6 +508,40 @@ Por rota (mediana das medianas das 3 execuções):
 - **Gargalo que apareceu depois:** os relatórios (`vendas-por-dia` ~12 s, `top-produtos` ~22 s) e a cauda de `pedidos-por-status` (p95 ~13–16 s, `count(*)`) seguram o p95 e a CPU do banco.
 - **Testes futuros ligados a este:** tamanho do pool pequeno (F9, ~2–4 conexões) como experimento separado.
 
+### 05-indice-vendas-por-dia
+
+- **Status:** planejado (hipótese escrita antes da mudança)
+- **Problema:** P6 (`vendas-por-dia`): `criado_em::date BETWEEN` sem índice que sirva. No Diagnóstico 02 era 24,4% do tempo do banco; no experimento 04 a rota tem mediana ~12,3 s e está na cauda do p95.
+- **Situação atual (fato, `diagnostico/06-vendas-por-dia/pre-teste.txt`, banco ocioso, código do experimento 04):** o experimento 01 já resolveu o lado dos itens (`Index Scan using itens_pedido_pedido_id_idx`). O que sobra é um `Parallel Seq Scan` em `pedidos` (500 mil linhas, ~165 mil descartadas por worker) para achar ~4.300 pedidos de 7 dias: **840 ms**, quase tudo no scan de `pedidos`. Dados uniformes: 682–687 pedidos por dia, de 2024-01-01 a 2025-12-31.
+- **Pré-teste (fato, mesmo arquivo):** cada índice candidato criado dentro de uma transação com `ROLLBACK` (o `CREATE INDEX` do PostgreSQL é transacional; conferido no fim do arquivo que nenhum índice ficou):
+
+| Opção | Plano em `pedidos` | Tempo (ocioso) |
+| --- | --- | --- |
+| Hoje | `Parallel Seq Scan` | 840,1 ms |
+| A: índice de expressão `((criado_em::date))`, consulta igual | `Bitmap Index Scan on tmp_pedidos_dia` | 33,7 ms |
+| B: consulta reescrita como intervalo (`criado_em >= inicio AND criado_em < fim + 1`) + índice em `criado_em` | `Bitmap Index Scan on tmp_pedidos_criado` | 18,4 ms |
+
+  Uma execução só, e B rodou depois de A (cache mais quente: A leu 826 páginas do disco, B só 16). Numa primeira rodada no rascunho (não salva) os dois deram 21,2 e 20,3 ms. Conclusão: A e B são equivalentes, ambos ~25–40× mais rápidos que hoje.
+- **Hipótese:** criar o índice de expressão `pedidos ((criado_em::date))` deve derrubar o tempo de `vendas-por-dia` e, por liberar CPU do banco (a rota era ~24% do tempo dele), aumentar as req/s e reduzir o p95 geral, porque a consulta deixa de ler os 500 mil pedidos a cada chamada.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN`: `Seq Scan on pedidos` vira `Bitmap Index Scan` no novo índice.
+  - `vendas-por-dia` cai de ~12 s para perto de 1 s ou menos sob carga.
+  - req/s sobe de forma clara e o p95 geral cai, porque `vendas-por-dia` sai da cauda; a cauda passa a ser `top-produtos` e `pedidos-por-status`.
+  - Pelo ciclo fechado, `top-produtos` pode piorar (mais chamadas).
+  - CPU da API pode subir: a rota continua trazendo ~12.900 linhas por chamada (com `observacoes`) e somando em JS, agora mais vezes por segundo.
+- **O que derrubaria a hipótese:** plano sem o índice, ou `vendas-por-dia` e req/s sem mudança além da variação.
+- **Fonte da ideia:** F10 (PostgreSQL 16, 11.7 Indexes on Expressions).
+- **Por que A e não B:** desempenho equivalente no pré-teste; A não muda código nem a consulta, então o risco ao contrato é nulo e é uma variável só (o banco). B deixaria um índice mais reaproveitável (serve qualquer filtro por intervalo de `criado_em`), mas exige mudar a rota e provar que o intervalo é idêntico ao `::date BETWEEN` (é, para `timestamp` sem fuso, mas é mais uma coisa a provar). Outras alternativas em [Alternativas](#alternativas).
+- **Depois deste (ideia separada):** agregar no SQL (`GROUP BY` por dia) em vez de trazer ~12.900 linhas para somar em JS: menos dados trafegando e menos CPU na API. Fica para outro experimento, porque mexe no código e no contrato (formato do dia, somas `bigint` → `Number`).
+- **Mudança:** `banco/05-indice-pedidos-dia.sql` — commit `<preencher>`
+- **Custo esperado:** tamanho do índice (medir); escrita mais lenta, e F10 diz que índices de expressão são "relatively expensive to maintain" (não aparece aqui, a API só lê).
+- **Evidência a salvar:** `diagnostico/06-vendas-por-dia/` com o `EXPLAIN (ANALYZE, BUFFERS)` real depois da mudança e o tamanho dos índices
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 04 (pastas de 09/11 em [04-pool-conexoes](#04-pool-conexoes)), **se medido na mesma sessão**; senão, remedir o 04 antes
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -519,6 +554,7 @@ Por rota (mediana das medianas das 3 execuções):
 | F7 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 52.2 How Connections Are Established | https://www.postgresql.org/docs/16/connect-estab.html | 2026-11-05 | doc oficial | conexões | "PostgreSQL implements a 'process per user' client/server model"; o postmaster "spawns a new backend process every time a connection is requested" |
 | F8 | node-postgres (Brian Carlson) | Pooling (#why) e API do Pool (#new-pool, #error) | https://node-postgres.com/features/pooling e https://node-postgres.com/apis/pool | 2026-11-05 | técnica primária (doc da biblioteca usada) | conexões | "Connecting a new client to the PostgreSQL server requires a handshake which can take 20-30 milliseconds"; "Incurring this cost every time we want to execute a query would substantially slow down our application"; `max` "By default this is set to 10"; `idleTimeoutMillis` padrão 10000; sem ouvinte de `error`, o Node "will emit an uncaught error and potentially crash your node process" |
 | F9 | Brett Wooldridge (HikariCP) | About Pool Sizing (wiki) | https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing | 2026-11-05 | técnica / caso de mercado (cita o projeto PostgreSQL e um vídeo da Oracle) | conexões | Fórmula atribuída ao projeto PostgreSQL: conexões ativas "somewhere near ((core_count * 2) + effective_spindle_count)"; "You want a small pool [...] and you want the rest of the application threads blocked on the pool"; exemplo da Oracle: reduzir só o pool levou a resposta "from ~100ms to ~2ms" |
+| F10 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.7 Indexes on Expressions | https://www.postgresql.org/docs/16/indexes-expressional.html | 2026-11-09 | doc oficial | índices | "An index column need not be just a column of the underlying table, but can be a function or scalar expression computed from one or more columns of the table"; "Index expressions are relatively expensive to maintain [...] However, the index expressions are not recomputed during an indexed search"; "useful when retrieval speed is more important than insertion and update speed" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -532,6 +568,11 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P6 vendas-por-dia | A: índice de expressão `((criado_em::date))` | índice novo (disco/memória) | 840 → 34 ms ocioso (pré-teste) | quase nulo: consulta igual | baixo (um `.sql`) | **escolhida** (experimento 05) |
+| P6 vendas-por-dia | B: reescrever o filtro como intervalo + índice em `criado_em` | índice novo | 840 → 18 ms ocioso (equivalente a A) | baixo, mas muda a rota | baixo/médio | descartada por ora: mesmo ganho, mais uma variável (código) |
+| P6 vendas-por-dia | C: agregar no SQL (`GROUP BY` por dia) | nenhum | menos linhas e menos CPU na API; não resolve o scan sozinho | médio: formato do dia, `bigint` → `Number` | médio | depois, como experimento separado |
+| P6 vendas-por-dia | D: tabela/visão materializada com o resumo por dia | espaço pequeno; manutenção (atualizar a cada pedido ou periodicamente) | o mais rápido (lê ~7 linhas prontas) | médio/alto: dados velhos se a atualização falhar; aqui os dados nunca mudam, então mediria um cenário irreal | médio | descartada: ganho inflado pelos dados estáticos; registrar em próximos testes |
+| P6 vendas-por-dia | E: cache de resposta (ex.: Redis) | serviço novo | alto para períodos repetidos (a carga sorteia entre 725 inícios) | médio: invalidação | médio/alto | descartada: serviço novo para algo que um índice resolve |
 | P3 conexões | `pg.Pool` na API com `max: 20` (igual à concorrência atual) | nenhum serviço novo; memória do banco com conexões persistentes | elimina handshake e criação de processo por consulta | baixo; precisa de ouvinte de `error` | baixo | **escolhida** (experimento 04): isola o custo de conexão |
 | P3 conexões | `pg.Pool` pequeno (~2–4, fórmula do F9) | idem, menos memória | pode ser melhor: menos consultas brigando pela única CPU | médio: fila no pool; mexe também na concorrência | baixo | depois, como experimento separado (tamanho do pool) |
 | P3 conexões | PgBouncer (pooler externo) entre API e banco | serviço novo (CPU/memória, mais um container) | parecido com o pool na API para um único processo Node | médio: mais uma peça | médio | descartada: só compensa com várias instâncias da API; aqui é um processo só |
@@ -570,3 +611,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 03, calculou medianas e variações, analisou a piora do p95; investigou o aviso `Broken pipe` (checou todos os `recursos.csv`) | Números copiados de `resumo.txt`/`recursos.txt`; conferir contra as pastas |
 | 2026-11-05 | Claude Code | Abriu F7–F9, redigiu a hipótese do experimento 04 (incluindo a escolha `max: 20` para isolar a variável), alternativas do P3, o código sugerido do pool e o script de contagem de sessões | Citações conferidas pelos links; código validado pelo verificador de contrato |
 | 2026-11-09 | Claude Code | Notou a duplicação da carga no `sessoes.sh`, o `sem commit: 5` e a diferença entre dias nas primeiras medições do 04; sugeriu descartar e remedir o 03 na mesma sessão; calculou medianas e escreveu a análise | Números copiados de `resumo.txt`/`recursos.txt`/`contexto.txt`; conferir contra as pastas |
+| 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste de `vendas-por-dia` (índices candidatos em transação com `ROLLBACK`), abriu F10, redigiu a hipótese do experimento 05 e a tabela de alternativas do P6 | Saída bruta em `diagnostico/06-vendas-por-dia/pre-teste.txt`, com a lista de índices no fim provando que nada ficou no banco |
