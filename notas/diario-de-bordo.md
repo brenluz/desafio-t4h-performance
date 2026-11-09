@@ -42,7 +42,8 @@ Regras que valem aqui também:
 | 2026-11-05 | Decidido fazer o pool de conexões antes dos relatórios; hipótese do experimento 04 escrita antes da mudança | `c60aa28` |
 | 2026-11-05 | Pool implementado; contagem de sessões antes e depois (918 → 49) | `f54c2ba`, `a68bdfb`, `c9cb474` |
 | 2026-11-09 | Primeiras medições do 04 descartadas (arquivos sem commit e dias diferentes); experimento 03 remedido e 04 medido na mesma sessão: +11,7% req/s, mediana −62% | `4cb8796`, pastas de 09/11 |
-| 2026-11-09 | Pré-teste dos índices para `vendas-por-dia` (com `ROLLBACK`); hipótese do experimento 05 escrita antes da mudança | `diagnostico/06-vendas-por-dia/`, este diário |
+| 2026-11-09 | Pré-teste dos índices para `vendas-por-dia` (com `ROLLBACK`); hipótese do experimento 05 escrita antes da mudança | `c22f6d3`, `194f9e4` |
+| 2026-11-09 | Experimento 05: índice de expressão, medido 3 vezes na mesma sessão do 04; +18,7% req/s, p95 −35%, p99 +47% | `7114534`, `047abf3`, `aea7616` |
 
 ## Ambiente
 
@@ -87,7 +88,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
-| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | pré-teste feito; experimento 05 planejado (índice de expressão); agregação no SQL fica para depois |
+| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); agregação no SQL (menos linhas para a API) fica para depois |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | a investigar |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | a investigar |
 | P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | a investigar |
@@ -510,7 +511,7 @@ Por rota (mediana das medianas das 3 execuções):
 
 ### 05-indice-vendas-por-dia
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — ganho em vazão e p95; a cauda passou para `pedidos-por-status` e `top-produtos`
 - **Problema:** P6 (`vendas-por-dia`): `criado_em::date BETWEEN` sem índice que sirva. No Diagnóstico 02 era 24,4% do tempo do banco; no experimento 04 a rota tem mediana ~12,3 s e está na cauda do p95.
 - **Situação atual (fato, `diagnostico/06-vendas-por-dia/pre-teste.txt`, banco ocioso, código do experimento 04):** o experimento 01 já resolveu o lado dos itens (`Index Scan using itens_pedido_pedido_id_idx`). O que sobra é um `Parallel Seq Scan` em `pedidos` (500 mil linhas, ~165 mil descartadas por worker) para achar ~4.300 pedidos de 7 dias: **840 ms**, quase tudo no scan de `pedidos`. Dados uniformes: 682–687 pedidos por dia, de 2024-01-01 a 2025-12-31.
 - **Pré-teste (fato, mesmo arquivo):** cada índice candidato criado dentro de uma transação com `ROLLBACK` (o `CREATE INDEX` do PostgreSQL é transacional; conferido no fim do arquivo que nenhum índice ficou):
@@ -533,14 +534,71 @@ Por rota (mediana das medianas das 3 execuções):
 - **Fonte da ideia:** F10 (PostgreSQL 16, 11.7 Indexes on Expressions).
 - **Por que A e não B:** desempenho equivalente no pré-teste; A não muda código nem a consulta, então o risco ao contrato é nulo e é uma variável só (o banco). B deixaria um índice mais reaproveitável (serve qualquer filtro por intervalo de `criado_em`), mas exige mudar a rota e provar que o intervalo é idêntico ao `::date BETWEEN` (é, para `timestamp` sem fuso, mas é mais uma coisa a provar). Outras alternativas em [Alternativas](#alternativas).
 - **Depois deste (ideia separada):** agregar no SQL (`GROUP BY` por dia) em vez de trazer ~12.900 linhas para somar em JS: menos dados trafegando e menos CPU na API. Fica para outro experimento, porque mexe no código e no contrato (formato do dia, somas `bigint` → `Number`).
-- **Mudança:** `banco/05-indice-pedidos-dia.sql` — commit `<preencher>`
+- **Mudança:** `banco/05-indice-pedidos-dia.sql` (`CREATE INDEX pedidos_criado_em_dia_idx ON pedidos ((criado_em::date))` + `ANALYZE`) — commit `7114534`. Evidência em `047abf3` (commit medido). Resultados em `aea7616`.
 - **Custo esperado:** tamanho do índice (medir); escrita mais lenta, e F10 diz que índices de expressão são "relatively expensive to maintain" (não aparece aqui, a API só lê).
-- **Evidência a salvar:** `diagnostico/06-vendas-por-dia/` com o `EXPLAIN (ANALYZE, BUFFERS)` real depois da mudança e o tamanho dos índices
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 04 (pastas de 09/11 em [04-pool-conexoes](#04-pool-conexoes)), **se medido na mesma sessão**; senão, remedir o 04 antes
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência do plano (banco ocioso)
+
+`diagnostico/06-vendas-por-dia/explain-depois.txt` (2024-06-01 a 2024-06-07): `Bitmap Index Scan on pedidos_criado_em_dia_idx` (4.786 pedidos achados lendo 7 páginas do índice) + `Index Scan using itens_pedido_pedido_id_idx`. **31,4 ms**, contra 840,1 ms sem o índice no pré-teste. Confirma o pré-teste da opção A (33,7 ms). O `Planning Time` de 12 ms é o cache de catálogo frio logo depois de recriar o banco.
+
+**Custo medido** (`tamanho-indices.txt`): `pedidos_criado_em_dia_idx` **3.552 kB** (~3,5 MB): o menor índice criado até aqui, porque guarda só uma data por pedido. Índices novos somam ~51 MB.
+
+#### Medição sob carga (09/11, mesma sessão do experimento 04)
+
+- **Contrato:** mantido nas 3 execuções (`contrato.txt`)
+- **Antes:** experimento 04, as 3 pastas de 09/11 19:41–19:49 em [04-pool-conexoes](#04-pool-conexoes). Sem remedir: medido ~30 min antes, sem reiniciar máquina, Docker ou WSL (só o `down -v && up` do próprio experimento).
+- **Depois:** commit `047abf3`, pastas:
+  - [`resultados/20261109-201718-05-indice-vendas-por-dia`](../resultados/20261109-201718-05-indice-vendas-por-dia/resumo.txt)
+  - [`resultados/20261109-202101-05-indice-vendas-por-dia`](../resultados/20261109-202101-05-indice-vendas-por-dia/resumo.txt)
+  - [`resultados/20261109-203110-05-indice-vendas-por-dia`](../resultados/20261109-203110-05-indice-vendas-por-dia/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 201718 | 11.35 | 312.0 ms | 7177.6 ms | 30188.7 ms | 0.00% | 96.6% | 423.6 MiB | 18.4% | 48.0 MiB |
+| 202101 | 11.19 | 320.4 ms | 8445.2 ms | 29885.9 ms | 0.00% | 97.2% | 424.8 MiB | 20.0% | 57.7 MiB |
+| 203110 | 10.70 | 301.1 ms | 9592.1 ms | 34764.7 ms | 0.00% | 99.2% | 422.9 MiB | 18.1% | 43.4 MiB |
+| **Mediana** | **11.19** | **312.0 ms** | **8445.2 ms** | **30188.7 ms** | — | **97.2%** | **423.6 MiB** | **18.4%** | **48.0 MiB** |
+
+| Métrica (mediana das 3) | 04-pool-conexoes | 05-indice-vendas-por-dia | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 9.43 | 11.19 | +18,7% (faixas 9,26–9,60 → 10,70–11,35, sem sobreposição) |
+| p95 geral | 13042.1 ms | 8445.2 ms | **−35,2%** (faixas 12,98–13,42 s → 7,18–9,59 s, sem sobreposição) |
+| p99 geral | 20497.8 ms | 30188.7 ms | **+47% (pior)** |
+| Mediana geral | 302.8 ms | 312.0 ms | ≈ igual (faixas se sobrepõem) |
+| Banco CPU média | 100.3% | 97.2% | ≈ no teto |
+| Banco mem média | 416.7 MiB | 423.6 MiB | +6,9 MiB |
+| API CPU média | 17.1% | 18.4% | ≈ igual |
+| API mem média | 75.2 MiB | 48.0 MiB | −27 MiB; varia muito entre execuções (43–58 MiB aqui, 68–90 no 04), provavelmente coleta de lixo do Node: não interpretar |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 04 → 05 | Mediana 04 | Mediana 05 | Variação | p95 04 → 05 |
+| --- | --- | --- | --- | --- | --- |
+| `vendas-por-dia` | 46–48 → 48–53 | 12260.1 ms | 3518.6 ms | **−71%** | 15708.3 → 9615.7 ms (−39%) |
+| `top-produtos` | 9–11 → 10–11 | 21886.7 ms | 28646.2 ms | +31% (10–11 amostras) | — |
+| `pedidos-por-status` | 83–94 → 97–105 | 1251.5 ms | 1290.9 ms | ≈ igual | **14877.9 → 28075.9 ms (+89%)** |
+| `cliente` | | 95.1 ms | 95.2 ms | ≈ igual | |
+| `pedidos-do-cliente` | | 202.6 ms | 204.7 ms | ≈ igual | |
+| `busca-produtos` | | 300.4 ms | 304.2 ms | ≈ igual | |
+| `cliente-por-email` | | 700.7 ms | 714.7 ms | ≈ igual | |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `Seq Scan` vira `Bitmap Index Scan` no novo índice | confirmada (840 → 31 ms ocioso) |
+| `vendas-por-dia` cai de ~12 s para ~1 s ou menos | **parcial**: −71%, mas ainda 3,5 s |
+| req/s sobe de forma clara e o p95 geral cai | confirmada: +18,7% e −35% |
+| `top-produtos` pode piorar | confirmada: +31% (poucas amostras) |
+| CPU da API pode subir | ≈ igual (17,1% → 18,4%) |
+| (não previsto) | cauda de `pedidos-por-status` quase dobrou (p95 +89%) e o p99 geral piorou 47% |
+
+**Por que `vendas-por-dia` ainda leva 3,5 s (hipótese):** a consulta leva 31 ms com o banco ocioso, mas o banco segue a ~97% de CPU, então ela espera na fila; e cada chamada ainda leva ~12.900 linhas (com `observacoes`, ~274 caracteres cada) do banco para a API, para somar em JS. A agregação no SQL (alternativa C) testaria a segunda parte.
+
+**Por que a cauda de `pedidos-por-status` e o p99 pioraram (hipótese):** a mediana dessa rota não mudou (~1,3 s), mas o p95 dobrou: uma parte das chamadas fica muito lenta (23–36 s de p95). Com a CPU liberada por `vendas-por-dia`, a vazão subiu e `pedidos-por-status` foi mais chamada (+16%), disputando o banco com `top-produtos` (agregação de 1,5 milhão de linhas, ~29 s). As chamadas lentas devem ser as de `count(*)` em `pago` (300 mil entradas) e as de página alta, quando coincidem com um `top-produtos` em andamento. Não verificado: precisaria de um ranking novo (`pg_stat_statements`) ou dos tempos por status/página.
+
+- **Conclusão:** aplicada e medida, com ganho. +18,7% de vazão e p95 geral −35%, por um índice de 3,5 MB, sem mudar código nem resposta. `vendas-por-dia` caiu 71%, mas não sumiu da fila. Em troca, o gargalo ficou ainda mais concentrado: `top-produtos` e a cauda de `pedidos-por-status` agora decidem o p99.
+- **Gargalo que apareceu depois:** `top-produtos` (P7, ~29 s de mediana) e o `count(*)` de `pedidos-por-status` (P5). Agregar `vendas-por-dia` no SQL (alternativa C) fica como candidato menor.
 
 ## Fontes
 
@@ -612,3 +670,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Abriu F7–F9, redigiu a hipótese do experimento 04 (incluindo a escolha `max: 20` para isolar a variável), alternativas do P3, o código sugerido do pool e o script de contagem de sessões | Citações conferidas pelos links; código validado pelo verificador de contrato |
 | 2026-11-09 | Claude Code | Notou a duplicação da carga no `sessoes.sh`, o `sem commit: 5` e a diferença entre dias nas primeiras medições do 04; sugeriu descartar e remedir o 03 na mesma sessão; calculou medianas e escreveu a análise | Números copiados de `resumo.txt`/`recursos.txt`/`contexto.txt`; conferir contra as pastas |
 | 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste de `vendas-por-dia` (índices candidatos em transação com `ROLLBACK`), abriu F10, redigiu a hipótese do experimento 05 e a tabela de alternativas do P6 | Saída bruta em `diagnostico/06-vendas-por-dia/pre-teste.txt`, com a lista de índices no fim provando que nada ficou no banco |
+| 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 05, calculou medianas e variações (incluindo p99 e p95 por rota) e escreveu a análise | Números copiados de `explain-depois.txt`, `tamanho-indices.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
