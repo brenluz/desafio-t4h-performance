@@ -39,7 +39,9 @@ Regras que valem aqui também:
 | 2026-11-05 | Experimento 02: índice criado, plano conferido, medido 3 vezes; +42% req/s e p95 −18% sobre o 01 | `4640d9c`, `e8bafec`, `b8357ef` |
 | 2026-11-05 | Hipótese do experimento 03 (N+1 em `/clientes/:id/pedidos`) escrita antes da mudança | `9957cfa` |
 | 2026-11-05 | Experimento 03: consulta única, medido 3 vezes; rota −91%, +45% req/s, p95 geral +12,5% | `8293e59`, `9bb2e7a`, `06bccf0` |
-| 2026-11-05 | Decidido fazer o pool de conexões antes dos relatórios; hipótese do experimento 04 escrita antes da mudança | este diário |
+| 2026-11-05 | Decidido fazer o pool de conexões antes dos relatórios; hipótese do experimento 04 escrita antes da mudança | `c60aa28` |
+| 2026-11-05 | Pool implementado; contagem de sessões antes e depois (918 → 49) | `f54c2ba`, `a68bdfb`, `c9cb474` |
+| 2026-11-09 | Primeiras medições do 04 descartadas (arquivos sem commit e dias diferentes); experimento 03 remedido e 04 medido na mesma sessão: +11,7% req/s, mediana −62% | `4cb8796`, pastas de 09/11 |
 
 ## Ambiente
 
@@ -81,7 +83,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | --- | --- | --- | --- | --- | --- |
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
-| P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | experimento 04 planejado |
+| P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | resolvido no experimento 02 (sem `Sort` em disco); o `OFFSET` ainda percorre até 20 mil entradas do índice |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parcial: experimento 02 trocou o Seq Scan por `Index Only Scan`, mas só −19% (ocioso); continua contando até 300 mil entradas por requisição |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | a investigar |
@@ -400,7 +402,7 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras nas rotas lent
 
 ### 04-pool-conexoes
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — ganho confirmado (vazão moderada, mediana grande)
 - **Problema:** P3 (uma conexão nova por consulta, `api/src/db.js`). Escolhido antes dos relatórios para fechar a questão das conexões, que ficou misturada no experimento 03.
 - **Situação atual (fato + estimativa):** cada consulta faz `new Client` → `connect` → consulta → `end`. O PostgreSQL cria um processo novo para cada conexão (F7). Pela mistura de rotas da carga, a média é ~1,35 consultas por requisição (cliente 1, e-mail 1, pedidos do cliente 2, pedidos por status 2, busca 1, relatórios 1), então a ~5,6 req/s do experimento 03 são ~7–8 conexões abertas e fechadas por segundo (estimativa, a confirmar com a contagem de sessões).
 - **Hipótese:** reaproveitar conexões com `pg.Pool` deve aumentar as req/s e reduzir a mediana, porque o banco deixa de gastar CPU criando um processo e fazendo o handshake a cada consulta (F8: "a handshake which can take 20-30 milliseconds"), e essa CPU volta para as consultas, num banco que está no teto.
@@ -414,14 +416,96 @@ Por rota (mediana das medianas das 3 execuções; poucas amostras nas rotas lent
 - **Fonte da ideia:** F7 (processo por conexão no PostgreSQL), F8 (node-postgres: custo do handshake, padrões do `Pool`), F9 (HikariCP: tamanho do pool).
 - **Por que esta e não outra:** ver [Alternativas](#alternativas).
 - **Cuidado de robustez:** o pool emite `error` quando uma conexão ociosa cai (ex.: o banco reinicia, como no `coletar.sh`); sem um ouvinte o processo Node pode cair (F8). Incluir `pool.on('error', ...)` que só registra no log: a conexão já é descartada pelo próprio pool.
-- **Mudança:** `api/src/db.js` — commit `<preencher>`
+- **Mudança:** `api/src/db.js`: `new Client`/`connect`/`end` por consulta virou um `Pool` com `max: 20` e `pool.query`, mais um ouvinte de `error` que só registra no log — commit `a68bdfb`.
 - **Custo esperado:** memória do banco (processos persistentes); nenhum serviço novo.
-- **Evidência a salvar:** `diagnostico/05-pool/` com a contagem de sessões numa carga igual à do `medir.sh`, antes (código do experimento 03) e depois
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 03 (pastas em [03-n-mais-1](#03-n-mais-1))
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência: conexões abertas sob carga
+
+`diagnostico/05-pool/` (script `sessoes.sh`, commits `f54c2ba` e `c9cb474`): contador `pg_stat_database.sessions` antes e depois de uma carga igual à do `medir.sh`.
+
+| | Código | Conexões abertas durante a carga |
+| --- | --- | --- |
+| sem pool (`sessoes-antes.txt`) | `f54c2ba` (= experimento 03) | 918 |
+| com pool (`sessoes-depois.txt`) | `a68bdfb` | 49 |
+
+−95% de conexões. As ~49 restantes: o pool reabre conexões que ficam 10 s ociosas (`idleTimeoutMillis`, F8) e o `psql` da própria contagem.
+
+**Ressalva:** a versão do script usada nas duas contagens tinha a carga duplicada por engano (duas cargas de 60 s seguidas; o arquivo `-carga.txt` guarda só a segunda). Corrigido no `c9cb474`. A comparação continua válida porque antes e depois rodaram exatamente a mesma carga dobrada; os números absolutos valem para ~120 s de carga, não 60 s.
+
+#### Incidente: medições descartadas e remedição do "antes"
+
+As primeiras medições do experimento 04 foram descartadas (commit `4cb8796`, pastas mantidas no repositório):
+
+- `resultados/20261105-194857-04-pool-conexoes`, `resultados/20261109-191154-04-pool-conexoes`, `resultados/20261109-191341-04-pool-conexoes`
+- **Motivo 1:** as três mostram `arquivos alterados sem commit: 5` (script corrigido e arquivos de sessões ainda sem commit; o código da API medido era o certo, `a68bdfb`).
+- **Motivo 2:** foram feitas em dias diferentes, com números muito diferentes para o mesmo código: 4,34 req/s em 05/11 contra 10,32 e 10,23 em 09/11. O "antes" (experimento 03) tinha sido medido em 05/11. Algo no ambiente mudou entre os dias (não identificado: reinício da máquina, do Docker/WSL, programas abertos).
+
+Por isso o experimento 03 foi **remedido em 09/11** (rótulo `03-n-mais-1-remedido`, commit `9bb2e7a`, com `git switch --detach`), seguido logo depois das 3 medições válidas do experimento 04, na mesma sessão e nas mesmas condições.
+
+Efeito do ambiente, mesmo código do experimento 03: 5,63 req/s em 05/11 contra 8,44 req/s em 09/11 (+50%). **Consequência:** só se comparam medições da mesma sessão. As comparações 00 → 01 → 02 → 03 (todas de 05/11) continuam válidas entre si; o 04 se compara com o 03 remedido. A tabela-resumo do artigo precisa de uma rodada final (ver [Limites e dúvidas](#limites-e-dúvidas)).
+
+#### Medição sob carga (09/11, mesma sessão)
+
+- **Contrato:** mantido nas 6 execuções (`contrato.txt`)
+- **Antes:** experimento 03 remedido, commit `9bb2e7a`:
+  - [`resultados/20261109-192344-03-n-mais-1-remedido`](../resultados/20261109-192344-03-n-mais-1-remedido/resumo.txt)
+  - [`resultados/20261109-192526-03-n-mais-1-remedido`](../resultados/20261109-192526-03-n-mais-1-remedido/resumo.txt)
+  - [`resultados/20261109-192702-03-n-mais-1-remedido`](../resultados/20261109-192702-03-n-mais-1-remedido/resumo.txt)
+- **Depois:** commit `4cb8796` (o código da API é o do `a68bdfb`; o `4cb8796` só acrescenta os resultados descartados), pastas:
+  - [`resultados/20261109-194137-04-pool-conexoes`](../resultados/20261109-194137-04-pool-conexoes/resumo.txt)
+  - [`resultados/20261109-194359-04-pool-conexoes`](../resultados/20261109-194359-04-pool-conexoes/resumo.txt)
+  - [`resultados/20261109-194912-04-pool-conexoes`](../resultados/20261109-194912-04-pool-conexoes/resumo.txt)
+
+| Execução | req/s | mediana | p95 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 03r 192344 | 8.46 | 705.3 ms | 13004.4 ms | 0.00% | 100.1% | 410.1 MiB | 15.3% | 58.4 MiB |
+| 03r 192526 | 8.44 | 798.5 ms | 12718.9 ms | 0.00% | 100.5% | 412.5 MiB | 13.8% | 54.8 MiB |
+| 03r 192702 | 7.78 | 792.6 ms | 13815.1 ms | 0.00% | 100.4% | 411.8 MiB | 15.4% | 60.2 MiB |
+| **03r mediana** | **8.44** | **792.6 ms** | **13004.4 ms** | — | **100.4%** | **411.8 MiB** | **15.3%** | **58.4 MiB** |
+| 04 194137 | 9.43 | 302.8 ms | 13421.3 ms | 0.00% | 100.5% | 416.7 MiB | 16.8% | 89.7 MiB |
+| 04 194359 | 9.26 | 320.3 ms | 13042.1 ms | 0.00% | 100.3% | 421.5 MiB | 17.1% | 68.5 MiB |
+| 04 194912 | 9.60 | 298.2 ms | 12977.6 ms | 0.00% | 98.3% | 412.6 MiB | 18.7% | 75.2 MiB |
+| **04 mediana** | **9.43** | **302.8 ms** | **13042.1 ms** | — | **100.3%** | **416.7 MiB** | **17.1%** | **75.2 MiB** |
+
+| Métrica (mediana das 3) | 03 remedido | 04-pool-conexoes | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 8.44 | 9.43 | +11,7% (faixas 7,78–8,46 → 9,26–9,60, sem sobreposição) |
+| Mediana geral | 792.6 ms | 302.8 ms | **−61,8%** |
+| p95 geral | 13004.4 ms | 13042.1 ms | ≈ igual (faixas 12,7–13,8 s e 13,0–13,4 s se sobrepõem) |
+| Banco CPU média | 100.4% | 100.3% | ≈ igual (no teto) |
+| Banco mem média | 411.8 MiB | 416.7 MiB | +4,9 MiB (pequeno, perto da variação) |
+| API CPU média | 15.3% | 17.1% | +1,8 p.p. |
+| API mem média | 58.4 MiB | 75.2 MiB | +16,8 MiB (máx. 99,8 MiB de 256 MB) |
+
+Por rota (mediana das medianas das 3 execuções):
+
+| Rota | 03 remedido | 04 | Variação |
+| --- | --- | --- | --- |
+| `cliente` | 338.4 ms | 95.1 ms | −72% |
+| `pedidos-do-cliente` | 796.5 ms | 202.6 ms | −75% |
+| `busca-produtos` | 601.9 ms | 300.4 ms | −50% |
+| `cliente-por-email` | 1082.0 ms | 700.7 ms | −35% |
+| `pedidos-por-status` | 1844.7 ms | 1251.5 ms | −32% |
+| `vendas-por-dia` | 12210.8 ms | 12260.1 ms | ≈ igual |
+| `top-produtos` | 20247.8 ms | 21886.7 ms | +8% (8–11 amostras, dentro da variação) |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| Sessões abertas caem de centenas para ~20 | confirmada: 918 → 49 (com a ressalva da carga dobrada) |
+| req/s sobe de forma modesta (5–15%) | confirmada: +11,7% |
+| Mediana cai, ganho maior nas rotas rápidas | confirmada, e **bem maior que o previsto**: −62% na mediana geral; `cliente` 338 → 95 ms |
+| Memória do banco sobe | quase nada: +4,9 MiB, perto da variação |
+| Banco continua saturado | confirmada: 98,3–100,5% |
+
+**Por que a mediana caiu muito mais que a vazão subiu (hipótese):** a previsão usou o custo de conexão com o banco ocioso (F8: 20–30 ms). Sob carga, o handshake e a criação do processo também esperam a vez na CPU saturada, então cada conexão custava bem mais. `cliente` (uma consulta por chave primária, < 1 ms) caiu ~240 ms por requisição, uma estimativa de quanto custava uma conexão sob carga. As rotas rápidas eram quase só custo de conexão; as pesadas (relatórios) eram quase só consulta, e por isso não mudaram. Como as pesadas continuam dominando a CPU do banco, a vazão total sobe pouco.
+
+**Observação:** a preocupação levantada com as cargas do `sessoes.sh` (relatórios mais lentos com o pool) não se confirmou nas medições válidas: `vendas-por-dia` ≈ igual, `top-produtos` +8% com poucas amostras. Aquelas cargas não eram medições (sem aquecimento, seguidas, dobradas, outro dia).
+
+- **Conclusão:** aplicada e medida, com ganho. Menos 95% de conexões, +11,7% de vazão e mediana −62%, sem serviço novo e com custo pequeno (+5 MiB no banco, +17 MiB na API). O p95 não mudou: ele é decidido pelos relatórios.
+- **Gargalo que apareceu depois:** os relatórios (`vendas-por-dia` ~12 s, `top-produtos` ~22 s) e a cauda de `pedidos-por-status` (p95 ~13–16 s, `count(*)`) seguram o p95 e a CPU do banco.
+- **Testes futuros ligados a este:** tamanho do pool pequeno (F9, ~2–4 conexões) como experimento separado.
 
 ## Fontes
 
@@ -468,6 +552,7 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 - O autovacuum roda sozinho ~50 s depois de o banco ser recriado (`diagnostico/03-indice-pedidos-status/vacuum.txt`). Se uma medição começar antes disso, o autovacuum pode rodar durante a carga e os planos podem mudar (ex.: `Heap Fetches` no `count(*)`). Esperar o banco assentar depois de `down -v && up` antes de medir.
 - `cpu_media` subestima um pouco a carga: o coletor do `medir.sh` continua amostrando por alguns segundos depois do fim da carga, e as últimas amostras de cada `recursos.csv` têm o banco quase parado (ex.: 0,05%, 6,90%). Afeta todas as medições do mesmo jeito, então as comparações continuam válidas.
 - Mensagem `date: write error: Broken pipe (os error 32)` no fim do `medir.sh`: o `date` do coletor (uutils coreutils, Ubuntu 26.04) reclama quando o laço é encerrado no meio de uma escrita. Inofensiva: conferido que nenhum `recursos.csv` tem linha malformada (68–86 amostras por execução) e o `resumo.txt` vem do k6, não do coletor.
+- **O ambiente muda entre dias:** o mesmo código (experimento 03) deu 5,63 req/s em 05/11 e 8,44 req/s em 09/11 (+50%). Causa não identificada. Só comparar medições da mesma sessão; no mesmo dia também houve deriva (pool: 10,3 req/s às 19:11 nas medições descartadas contra 9,4 às 19:41). **Plano:** rodada final no fim do trabalho, na mesma sessão, com linha de base e versão final (3 medições cada), para a tabela-resumo do artigo.
 - O p95 geral depende da mistura de rotas: na carga de ciclo fechado, acelerar uma rota faz as outras serem mais chamadas e pode piorar a cauda (experimento 03). Comparar sempre req/s, mediana, p95 e as rotas juntos.
 
 ## Uso de IA
@@ -484,3 +569,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-05 | Claude Code | Redigiu a hipótese do experimento 03, a tabela de alternativas do N+1 e sugeriu o código da nova rota; buscou fontes (F5 verificada; F6 só o título; artigo Chen et al. ICSE 2014 não abriu e ficou de fora) | Conferir F6 no navegador; código revisado por mim e validado pelo verificador de contrato |
 | 2026-11-05 | Claude Code | Leu as 3 pastas do experimento 03, calculou medianas e variações, analisou a piora do p95; investigou o aviso `Broken pipe` (checou todos os `recursos.csv`) | Números copiados de `resumo.txt`/`recursos.txt`; conferir contra as pastas |
 | 2026-11-05 | Claude Code | Abriu F7–F9, redigiu a hipótese do experimento 04 (incluindo a escolha `max: 20` para isolar a variável), alternativas do P3, o código sugerido do pool e o script de contagem de sessões | Citações conferidas pelos links; código validado pelo verificador de contrato |
+| 2026-11-09 | Claude Code | Notou a duplicação da carga no `sessoes.sh`, o `sem commit: 5` e a diferença entre dias nas primeiras medições do 04; sugeriu descartar e remedir o 03 na mesma sessão; calculou medianas e escreveu a análise | Números copiados de `resumo.txt`/`recursos.txt`/`contexto.txt`; conferir contra as pastas |
