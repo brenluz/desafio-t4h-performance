@@ -1,0 +1,99 @@
+##### distribuicao
+         min         |         max         | count  
+---------------------+---------------------+--------
+ 2024-01-01 00:02:01 | 2025-12-31 23:59:14 | 500000
+(1 row)
+
+ media_pedidos_dia | min | max 
+-------------------+-----+-----
+               684 | 682 | 687
+(1 row)
+
+##### ATUAL (sem indice novo)
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather (actual time=4.560..839.418 rows=12922 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=23878 read=14258
+   ->  Nested Loop (actual time=2.910..828.232 rows=4307 loops=3)
+         Buffers: shared hit=23878 read=14258
+         ->  Parallel Seq Scan on pedidos p (actual time=2.835..818.368 rows=1437 loops=3)
+               Filter: ((status <> 'cancelado'::text) AND ((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               Rows Removed by Filter: 165230
+               Buffers: shared hit=6576 read=14258
+         ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i (actual time=0.005..0.006 rows=3 loops=4310)
+               Index Cond: (pedido_id = p.id)
+               Buffers: shared hit=17302
+ Planning:
+   Buffers: shared hit=297
+ Planning Time: 1.510 ms
+ Execution Time: 840.137 ms
+(17 rows)
+
+##### A: indice de expressao em (criado_em::date), dentro de transacao com ROLLBACK
+BEGIN
+CREATE INDEX
+ANALYZE
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Gather (actual time=1.356..33.226 rows=12922 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=18295 read=7
+   ->  Nested Loop (actual time=0.413..13.834 rows=4307 loops=3)
+         Buffers: shared hit=18295 read=7
+         ->  Parallel Bitmap Heap Scan on pedidos p (actual time=0.373..6.969 rows=1437 loops=3)
+               Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               Filter: (status <> 'cancelado'::text)
+               Rows Removed by Filter: 159
+               Heap Blocks: exact=446
+               Buffers: shared hit=993 read=7
+               ->  Bitmap Index Scan on tmp_pedidos_dia (actual time=0.917..0.918 rows=4786 loops=1)
+                     Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Buffers: shared read=7
+         ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i (actual time=0.004..0.004 rows=3 loops=4310)
+               Index Cond: (pedido_id = p.id)
+               Buffers: shared hit=17302
+ Planning:
+   Buffers: shared hit=170 read=1
+ Planning Time: 0.826 ms
+ Execution Time: 33.724 ms
+(22 rows)
+
+ROLLBACK
+##### B: consulta reescrita como intervalo + indice em criado_em, com ROLLBACK
+BEGIN
+CREATE INDEX
+ANALYZE
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Gather (actual time=1.641..17.960 rows=12922 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=18295 read=16
+   ->  Nested Loop (actual time=0.516..9.233 rows=4307 loops=3)
+         Buffers: shared hit=18295 read=16
+         ->  Parallel Bitmap Heap Scan on pedidos p (actual time=0.470..1.988 rows=1437 loops=3)
+               Recheck Cond: ((criado_em >= '2024-06-01 00:00:00'::timestamp without time zone) AND (criado_em < '2024-06-08'::date))
+               Filter: (status <> 'cancelado'::text)
+               Rows Removed by Filter: 159
+               Heap Blocks: exact=469
+               Buffers: shared hit=993 read=16
+               ->  Bitmap Index Scan on tmp_pedidos_criado (actual time=1.183..1.183 rows=4786 loops=1)
+                     Index Cond: ((criado_em >= '2024-06-01 00:00:00'::timestamp without time zone) AND (criado_em < '2024-06-08'::date))
+                     Buffers: shared read=16
+         ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i (actual time=0.004..0.005 rows=3 loops=4310)
+               Index Cond: (pedido_id = p.id)
+               Buffers: shared hit=17302
+ Planning:
+   Buffers: shared hit=168 read=1
+ Planning Time: 0.690 ms
+ Execution Time: 18.423 ms
+(22 rows)
+
+ROLLBACK
+##### confere que nada ficou
+pedidos_cliente_id_idx
+pedidos_pkey
+pedidos_status_criado_em_id_idx
