@@ -1,0 +1,17 @@
+Medição: 07-top-produtos-visao-materializada
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        2179
+Requisições/s:      36.18
+Tempo de resposta:  mediana 424.9 ms | p95 1446.2 ms | p99 2203.5 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               573       114.0 ms      627.1 ms      969.6 ms      0.0%    
+cliente-por-email     320       901.9 ms      1609.4 ms     1976.6 ms     0.0%    
+pedidos-do-cliente    455       299.5 ms      910.3 ms      1351.8 ms     0.0%    
+pedidos-por-status    307       683.4 ms      1512.3 ms     1924.5 ms     0.0%    
+busca-produtos        324       482.2 ms      1005.5 ms     1692.7 ms     0.0%    
+vendas-por-dia        162       1077.6 ms     3162.0 ms     3534.4 ms     0.0%    
+top-produtos          38        201.0 ms      808.1 ms      1004.5 ms     0.0%    
