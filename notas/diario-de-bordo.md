@@ -47,7 +47,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Diagnóstico 03 (`pg_stat_statements` + EXPLAINs quentes): página de `/pedidos` = 46,7% do banco; prioridades revistas, P4b antes de `top-produtos` | `ac441de`, `d06ebb9` |
 | 2026-11-09 | Pré-teste do P4b: blocos temporários explicados (plano vira `Seq Scan`+Sort para `cancelado`/`pagina=15000`); reescrita "late row lookup" validada ociosa; hipótese do experimento 06 escrita antes da mudança | `77f0c15`, `4d78d1a` |
 | 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab`, `a39645d` |
-| 2026-11-09 | Pré-teste da visão materializada para `top-produtos` (equivalência linha a linha, `ROLLBACK`); hipótese do experimento 07 escrita antes da mudança | `diagnostico/09-top-produtos/`, este diário |
+| 2026-11-09 | Pré-teste da visão materializada para `top-produtos` (equivalência linha a linha, `ROLLBACK`); hipótese do experimento 07 escrita antes da mudança | `7fd5034`, `ec7d902` |
+| 2026-11-09 | Experimento 07 (feito pelo Claude Code a pedido): visão materializada; 2,7× req/s, p95 −80%, p99 −90%; mediana +26%; CPU da API e memória do banco perto do limite | `02fe13e`, `15eb4a4`, `a3ffd77` |
 
 ## Ambiente
 
@@ -93,8 +94,8 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); **resolvido no experimento 06** (late row lookup: p95 da rota 28 s → 1,5 s) |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | na prática resolvido: com o mapa de visibilidade preenchido, o `Index Only Scan` caiu para 42 ms quente e 2,5% do banco (Diagnóstico 03) |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
-| P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); prioridade 2, tabela derivada |
-| P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | confirmado (Diagnóstico 03: 6,3%); prioridade 4 |
+| P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
+| P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | confirmado (Diagnóstico 03: 6,3%); depois do experimento 07 provavelmente o maior consumidor do banco (~335 chamadas × ~77 ms por execução); a confirmar |
 | P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | a investigar |
 | P10 | Postgres com configuração padrão | `docker-compose.yml` (sem `command`) | seção `settings`: `shared_buffers` 128 MB, `work_mem` 4 MB, 2 workers paralelos | Tabelas quentes (~280 MB) não cabem no cache; paralelismo num container de 1 CPU talvez só atrapalhe | a investigar |
 | P11 | `SELECT *` em todas as rotas | `api/src/rotas.js` | `observacoes` média 274 caracteres | Lê e transfere colunas que a rota não devolve | a investigar |
@@ -746,7 +747,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 ### 07-top-produtos-visao-materializada
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido** (ver [Uso de IA](#uso-de-ia)).
+- **Status:** aplicada e medida — maior ganho do desafio; o gargalo começou a sair do banco. **Implementado e medido pelo Claude Code a pedido** (ver [Uso de IA](#uso-de-ia)).
 - **Problema:** P7 (`top-produtos`): a cada chamada agrega todos os 1,5 milhão de itens. Diagnóstico 03: 21,3% do tempo do banco com só 2% da carga; no experimento 06 a rota tem mediana ~38 s e, com `vendas-por-dia`, decide o p95/p99.
 - **Situação atual (fato, `diagnostico/09-top-produtos/pre-teste.txt`, banco ocioso):** `Parallel Seq Scan` nos 1,5 milhão de itens + hash join com `pedidos` + agregação de 19.206 produtos, para devolver 10: **1.758,8 ms**. Nenhum índice evita ler todos os itens: o resultado depende de todos eles.
 - **Pré-teste (fato, mesmo arquivo; tudo dentro de transação com `ROLLBACK`, conferido no fim que nada ficou):**
@@ -767,14 +768,76 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Por que esta e não outra:** ver [Alternativas](#alternativas).
 - **Uma mudança lógica, dois arquivos:** a visão (`banco/`) e a consulta da rota (`api/`) não funcionam uma sem a outra; vão no mesmo commit.
 - **Cuidados de contrato:** a visão agrupa por `i.produto_id` em vez de `pr.id, pr.nome, pr.categoria`: equivalente, porque `produto_id` é `NOT NULL`, tem chave estrangeira para `produtos` e `pr.id` é chave primária (provado no pré-teste: 0 diferenças). As somas continuam `bigint` → `Number()` na rota. Mesmo desempate (`receita DESC, id`). Casos de erro (`limite=0`, `51`) intocados.
-- **Mudança:** `banco/06-resumo-vendas-produto.sql` + `api/src/rotas.js` (rota `top-produtos`) — commit `<preencher>`
+- **Mudança:** `banco/06-resumo-vendas-produto.sql` + `api/src/rotas.js` (rota `top-produtos`) — commit `02fe13e`. Evidência em `15eb4a4` (commit medido). Resultados em `a3ffd77`.
+  - Incidente de processo: o primeiro commit da mudança (`cdb35ab`) saiu só com o `.sql`, porque a edição da rota falhou; foi corrigido com `--amend` antes de recriar o banco e de medir (nada pushado nem medido nesse estado).
 - **Custo esperado:** ~2 MB de disco; ~1 s a mais na criação do banco; nenhum serviço novo; custo de atualização em produção (não aparece aqui).
-- **Evidência a salvar:** `diagnostico/09-top-produtos/` com o `EXPLAIN (ANALYZE, BUFFERS)` real da rota e o tamanho da visão
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 06, pastas de 09/11 21:17–21:21 em [06-pedidos-late-lookup](#06-pedidos-late-lookup) (mesma sessão)
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência
+
+- Criação do banco: o log mostra `running /docker-entrypoint-initdb.d/06-resumo-vendas-produto.sql` e `SELECT 19206`. Esperado ~90 s até o autovacuum terminar em todas as tabelas (inclusive `resumo_vendas_produto`) antes de medir.
+- `diagnostico/09-top-produtos/explain-depois.txt`: `Index Scan using resumo_vendas_produto_receita_idx` + `Index Scan using produtos_pkey`; **0,193 ms** (limite 10) e **0,236 ms** (limite 50), contra 1.758,8 ms antes. Nenhum `Seq Scan`.
+- `tamanho.txt`: visão + índices = **2.104 kB**.
+- Contrato conferido antes de medir: os 5 casos de `top-produtos` iguais.
+
+#### Medição sob carga (09/11, mesma sessão do experimento 06)
+
+- **Contrato:** mantido nas 3 execuções
+- **Antes:** experimento 06, pastas de 21:17–21:21. Medido ~15 min antes, sem reinício (só o `down -v && up` do próprio experimento).
+- **Depois:** commit `15eb4a4`, pastas:
+  - [`resultados/20261109-213632-07-top-produtos-visao-materializada`](../resultados/20261109-213632-07-top-produtos-visao-materializada/resumo.txt)
+  - [`resultados/20261109-213755-07-top-produtos-visao-materializada`](../resultados/20261109-213755-07-top-produtos-visao-materializada/resumo.txt)
+  - [`resultados/20261109-213918-07-top-produtos-visao-materializada`](../resultados/20261109-213918-07-top-produtos-visao-materializada/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 213632 | 36.18 | 424.9 ms | 1446.2 ms | 2203.5 ms | 0.00% | 84.4% | 448.1 MiB | 44.7% | 53.3 MiB |
+| 213755 | 39.33 | 364.5 ms | 1404.0 ms | 1948.2 ms | 0.00% | 95.5% | 480.0 MiB | 44.6% | 42.2 MiB |
+| 213918 | 39.30 | 383.8 ms | 1370.6 ms | 1837.8 ms | 0.00% | 86.9% | 478.3 MiB | 43.2% | 47.8 MiB |
+| **Mediana** | **39.30** | **383.8 ms** | **1404.0 ms** | **1948.2 ms** | — | **86.9%** | **478.3 MiB** | **44.6%** | **47.8 MiB** |
+
+| Métrica (mediana das 3) | 06-pedidos-late-lookup | 07-top-produtos-visao-materializada | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 14.32 | 39.30 | **+174% (2,7×)** (faixas 11,79–14,49 → 36,18–39,33) |
+| p95 geral | 6855.3 ms | 1404.0 ms | **−80%** |
+| p99 geral | 20226.0 ms | 1948.2 ms | **−90%** |
+| Mediana geral | 304.9 ms | 383.8 ms | **+26% (pior)** (faixas 304–315 → 365–425 ms, sem sobreposição) |
+| Banco CPU média | 96.5% | 86.9% | primeira vez claramente abaixo do teto (84–96%) |
+| Banco mem média | 434.3 MiB | 478.3 MiB | **+44 MiB; máximo 507,4 MiB de 512 MiB** |
+| API CPU média | 21.4% | 44.6% | **dobrou: ~89% do limite de 0,5 CPU (50%)** |
+| API mem média | 78.7 MiB | 47.8 MiB | varia muito (coleta de lixo): não interpretar |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 06 → 07 | Mediana 06 | Mediana 07 | Variação |
+| --- | --- | --- | --- | --- |
+| `top-produtos` | 12–14 → 38–41 | 37850.0 ms | 130.4 ms | **−99,7%** |
+| `vendas-por-dia` | 59–67 → 162–183 | 7154.4 ms | 1077.6 ms | **−85%** (p95 16996.0 → 2268.0 ms) |
+| `pedidos-por-status` | 116–142 → 307–333 | 791.1 ms | 615.8 ms | −22% |
+| `pedidos-do-cliente` | | 209.1 ms | 210.9 ms | ≈ igual |
+| `cliente` | | 97.2 ms | 102.5 ms | +5% |
+| `cliente-por-email` | 119–144 → 320–345 | 794.2 ms | 973.5 ms | **+23%** |
+| `busca-produtos` | 124–148 → 324–356 | 305.8 ms | 439.3 ms | **+44%** |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `EXPLAIN` usa a visão, sem `Seq Scan` em itens | confirmada (0,19 ms) |
+| `top-produtos` < 1 s sob carga | confirmada: 37,9 s → 0,13 s |
+| req/s sobe e p99 cai | confirmada, muito além do previsto: +174% e −90% |
+| A cauda passa a ser só `vendas-por-dia` | confirmada, e `vendas-por-dia` também caiu 85% (menos concorrência pesada), mesmo sendo chamada ~2,8× mais |
+| O banco sai do teto ou chega perto | parcial: 84–96%, abaixo do teto pela primeira vez |
+| (não previsto) | **a mediana geral piorou 26%**; `cliente-por-email` +23% e `busca-produtos` +44% |
+| (não previsto) | **CPU da API dobrou e encosta no limite** (44,6% de 50%); memória do banco a 5 MiB do limite no pico |
+
+**Por que a mediana geral piorou (hipótese):** com 2,7× mais requisições por segundo, as consultas baratas mas sem índice passaram a pesar. `cliente-por-email` faz `Seq Scan` em 100 mil clientes (~77 ms quente, Diagnóstico 03) e agora é chamada ~335 vezes por execução: ordem de 25 s de CPU do banco em 60 s, quase metade da CPU dele. `busca-produtos` (`ILIKE` com `Seq Scan`, ~12 ms × ~345 chamadas) soma mais um pouco. Essas rotas rápidas, que são ~45% da carga, esperam mais na fila — e é delas que vem a mediana. **Consequência:** o P8 (índice de e-mail), que era prioridade 4, provavelmente virou a 1. Precisa de um ranking novo para confirmar.
+
+**Por que a CPU da API dobrou (hipótese):** ela atende 2,7× mais requisições; a cada uma serializa o JSON e grava no log o corpo inteiro da resposta (P12); e cada `vendas-por-dia` (~175 por execução) recebe ~12.900 linhas e soma no Node. Com 0,5 CPU de limite, a API está perto de virar o gargalo.
+
+**Risco: memória do banco.** Máximo de 507,4 MiB num limite de 512 MiB. Pode ser cache de arquivos contado no container ou mais processos ativos ao mesmo tempo; não verificado. Se estourar, o container é morto. Vigiar nos próximos experimentos.
+
+- **Conclusão:** aplicada e medida, com o maior ganho do desafio: 2,7× a vazão, p95 −80%, p99 −90%, por ~2 MB e uma consulta nova, com equivalência provada linha a linha. O ganho é o melhor caso, porque os dados nunca mudam aqui; em produção haveria o custo e o atraso do `REFRESH` (não testado). Em troca, a carga extra expôs três novos limites: `cliente-por-email` sem índice, CPU da API e memória do banco.
+- **Gargalo que apareceu depois:** P8 (e-mail, provável maior consumidor do banco agora), CPU da API (P12 log + P6c agregação em JS), memória do banco no limite. Recomendado um Diagnóstico 04 antes de escolher.
 
 ## Fontes
 
