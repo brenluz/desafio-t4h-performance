@@ -54,7 +54,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `bd0a058`, `a527d2e` |
 | 2026-11-09 | Pré-teste de equivalência da agregação no SQL (735 janelas, 0 diferenças); hipótese do experimento 09 escrita antes da mudança | `a682db8`, `9b928a0` |
 | 2026-11-09 | Experimento 09 (feito pelo Claude Code a pedido): agregação no SQL; +62% req/s, mediana −67%, API de 96% para ~20% da cota; banco de volta ao teto; achado do throttling de CPU (51% dos períodos) | `3da8e3e`, `adf386e`, `c9835b3`, `d4f8c22` |
-| 2026-11-09 | Pré-teste do índice de trigramas para a busca (consultas parametrizadas, equivalência, `ROLLBACK`); hipótese do experimento 10 escrita antes da mudança | `diagnostico/13-busca-trgm/`, este diário |
+| 2026-11-09 | Pré-teste do índice de trigramas para a busca (consultas parametrizadas, equivalência, `ROLLBACK`); hipótese do experimento 10 escrita antes da mudança | `6b85ec8`, `5157d27` |
+| 2026-11-09 | Experimento 10 (feito pelo Claude Code a pedido): índice `pg_trgm`; +24% req/s, busca −67%; banco segue no teto | `0520020`, `668745f`, `d1f3c8f` |
 
 ## Ambiente
 
@@ -102,7 +103,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); transporte de ~12.900 linhas por chamada **resolvido no experimento 09** (agregação no SQL: 7 linhas, API de 96% para ~20% da cota) |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | **resolvido no experimento 08** (rota 974 → 195 ms; banco caiu de 87% para 63% de CPU) |
-| P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | virou 29,3% do banco no Diagnóstico 04 (384 chamadas × 85 ms); prioridade 2 |
+| P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | virou 29,3% do banco no Diagnóstico 04; **resolvido no experimento 10** (`pg_trgm`: rota 306 → 100 ms) |
 | P10 | Postgres com configuração padrão | `docker-compose.yml` (sem `command`) | seção `settings`: `shared_buffers` 128 MB, `work_mem` 4 MB, 2 workers paralelos | Tabelas quentes (~280 MB) não cabem no cache; paralelismo num container de 1 CPU talvez só atrapalhe | a investigar |
 | P11 | `SELECT *` em todas as rotas | `api/src/rotas.js` | `observacoes` média 274 caracteres | Lê e transfere colunas que a rota não devolve | a investigar |
 | P12 | Log com o corpo inteiro de cada resposta | `api/src/server.js` | 591 linhas = 647 KB de log; maior linha 6.324 caracteres | Custo de CPU na API; irrelevante hoje (API a 7%), pode aparecer depois que o banco melhorar | medido no Diagnóstico 04: 3 MB de log por minuto, mas `JSON.stringify`/escrita não aparecem entre as funções quentes; prioridade 4 |
@@ -1060,7 +1061,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 ### 10-busca-trigramas
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — ganho em vazão; a CPU liberada virou mais requisições, não folga. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P9 (`/produtos/busca`): `nome ILIKE '%' || termo || '%'` com `%` no começo; nenhum B-tree serve, então é `Seq Scan` nos 20 mil produtos a cada chamada, com comparação sem diferenciar maiúsculas linha a linha. Diagnóstico 04: 29,3% do tempo do banco; experimento 09: rota com mediana ~306 ms, 649–666 chamadas por execução, num banco de volta ao teto. Prioridade 2 do Diagnóstico 04.
 - **Pré-teste (fato, `diagnostico/13-busca-trgm/pre-teste.txt`; extensão e índice dentro de transação com `ROLLBACK`, conferido que nada ficou):**
   - Feito com `PREPARE`/`EXECUTE` e `plan_cache_mode = force_custom_plan`, com o mesmo `'%' || $1 || '%'` da rota, para reproduzir o planejamento das consultas sem nome da API (cada chamada é planejada com o valor real).
@@ -1079,12 +1080,67 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Fonte da ideia:** F17 (PostgreSQL 16, F.35 pg_trgm): os índices GIN/GiST de trigramas "support trigram-based index searches for LIKE, ILIKE [...] queries" e "the search string need not be left-anchored"; aviso: padrões sem trigramas extraíveis degeneram em varredura do índice inteiro (não é o caso: a rota exige ≥ 3 caracteres). A extensão é "trusted": pode ser instalada sem superusuário.
 - **Por que esta e não outra:** ver [Alternativas](#alternativas).
 - **Cuidados de contrato:** consulta igual (só muda o plano); mesmos resultados e ordem (provado no pré-teste); o caso `ab` (< 3 caracteres) continua recusado pela rota antes de chegar ao banco.
-- **Mudança:** `banco/08-indice-produtos-trigramas.sql` (`CREATE EXTENSION pg_trgm` + índice GIN) — commit `<preencher>`
+- **Mudança:** `banco/08-indice-produtos-trigramas.sql` (`CREATE EXTENSION pg_trgm` + índice GIN) — commit `0520020`. Evidência em `668745f` (commit medido). Resultados em `d1f3c8f`.
 - **Custo esperado:** ~1,1 MB de índice; escrita em `produtos` mais lenta (índice GIN é mais caro de atualizar); não aparece aqui.
-- **Antes:** experimento 09, 3 pastas de 09/11 22:22–22:25 (mesma sessão).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência
+
+- Log da criação do banco: `running /docker-entrypoint-initdb.d/08-indice-produtos-trigramas.sql`; autovacuum concluído em todas as tabelas antes de medir.
+- `diagnostico/13-busca-trgm/explain-depois.txt` (consulta parametrizada, planos customizados como na API): `Bitmap Index Scan on produtos_nome_trgm_idx` para `cadeira`, `sem fio`, `modelo 12`, `reforcada`, `ERGO` (1,7–2,0 ms) e `inexistente` (0,03 ms). Índice: 1.144 kB.
+- Contrato conferido antes de medir: os 6 casos de busca iguais (inclusive `ab`, recusado pela rota antes do banco).
+
+#### Medição sob carga (09/11, mesma sessão do experimento 09)
+
+- **Contrato:** mantido nas 3 execuções
+- **Antes:** experimento 09, 3 pastas de 22:22–22:25.
+- **Depois:** commit `668745f`, pastas:
+  - [`resultados/20261109-223641-10-busca-trigramas`](../resultados/20261109-223641-10-busca-trigramas/resumo.txt)
+  - [`resultados/20261109-223801-10-busca-trigramas`](../resultados/20261109-223801-10-busca-trigramas/resumo.txt)
+  - [`resultados/20261109-223920-10-busca-trigramas`](../resultados/20261109-223920-10-busca-trigramas/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 223641 | 90.09 | 100.4 ms | 809.8 ms | 1805.1 ms | 0.00% | 98.9% | 453.9 MiB | 12.1% | 26.2 MiB |
+| 223801 | 91.26 | 100.7 ms | 805.5 ms | 1491.2 ms | 0.00% | 98.6% | 463.6 MiB | 12.5% | 26.0 MiB |
+| 223920 | 91.15 | 100.8 ms | 888.4 ms | 1403.0 ms | 0.00% | 99.3% | 465.6 MiB | 11.4% | 26.9 MiB |
+| **Mediana** | **91.15** | **100.7 ms** | **809.8 ms** | **1491.2 ms** | — | **98.9%** | **463.6 MiB** | **12.1%** | **26.2 MiB** |
+
+| Métrica (mediana das 3) | 09-vendas-agregada-no-sql | 10-busca-trigramas | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 73.51 | 91.15 | **+24%** (faixas 72,44–74,50 → 90,09–91,26) |
+| Mediana geral | 104.8 ms | 100.7 ms | −4% (sem sobreposição, mas é o degrau de ~100 ms: ver experimento 09) |
+| p95 geral | 899.6 ms | 809.8 ms | −10% (faixas 0,90 s → 0,81–0,89 s) |
+| p99 geral | 1796.6 ms | 1491.2 ms | −17% (faixas 1,70–1,80 s e 1,40–1,81 s **se sobrepõem**) |
+| Banco CPU média | 98.5% | 98.9% | ≈ no teto |
+| Banco mem média | 459.8 MiB | 463.6 MiB | ≈ |
+| API CPU média | 9.8% | 12.1% | sobe com as req/s |
+| API mem média | 26.7 MiB | 26.2 MiB | ≈ |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 09 → 10 | Mediana 09 | Mediana 10 | Variação |
+| --- | --- | --- | --- | --- |
+| `busca-produtos` | 649–666 → 801–814 | 305.8 ms | 100.0 ms | **−67%** (p95 596.9 → 201.1 ms) |
+| `pedidos-por-status` | 634–653 → 777–786 | 397.7 ms | 391.6 ms | ≈ igual |
+| `vendas-por-dia` | 340–344 → 418–427 | 803.3 ms | 802.1 ms | ≈ igual (p95 2503.7 → 2207.4 ms) |
+| `cliente`, `cliente-por-email`, `pedidos-do-cliente`, `top-produtos` | ~+23% cada | 94.9 / 97.0 / 102.3 / 94.6 ms | 95.4 / 97.2 / 102.9 / 97.3 ms | ≈ iguais (já no degrau de ~100 ms) |
+
+Throttling do banco (`cpu.stat` lido logo depois das medições, acumulado desde a criação do container ~5 min antes): 2.404 de 2.978 períodos limitados (81%). **Não comparável** diretamente com os 51% do experimento 09: aquele container estava de pé havia mais tempo, com mais períodos ociosos no denominador. Só confirma que o banco segue limitado pela cota.
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `Bitmap Index Scan` no novo índice em todos os termos | confirmada |
+| `busca-produtos` cai de ~306 ms para o degrau de ~100 ms | confirmada: 100,0 ms |
+| CPU do banco cai abaixo de 98,5% | **refutada**: 98,9%. A CPU liberada foi consumida na hora por mais requisições (ciclo fechado) |
+| req/s sobe | confirmada: +24% |
+| Ganho menor que o do experimento 09 | confirmada (+24% contra +62%) |
+
+**Leitura (hipótese):** com o banco no teto e a carga de ciclo fechado, liberar CPU do banco não deixa o banco ocioso: os 20 usuários virtuais passam a fazer mais requisições até ele saturar de novo. O ganho aparece em vazão (+24%), não em CPU. As medianas das rotas baratas já estão no degrau mínimo de ~100 ms do throttling e não têm mais o que cair enquanto o banco estiver no teto.
+
+- **Conclusão:** aplicada e medida, com ganho: +24% de vazão e a rota de busca −67%, por um índice de 1,1 MB, com resultado provado igual. O banco continua no teto.
+- **Gargalo que apareceu depois:** `pedidos-por-status` (~392 ms, `count(*)` contando até 300 mil entradas) e `vendas-por-dia` (~802 ms, p99 ~3,4 s). Próximo: P5 (prioridade 3 do Diagnóstico 04).
 
 ## Fontes
 
