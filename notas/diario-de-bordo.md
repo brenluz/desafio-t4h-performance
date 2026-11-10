@@ -56,7 +56,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 09 (feito pelo Claude Code a pedido): agregação no SQL; +62% req/s, mediana −67%, API de 96% para ~20% da cota; banco de volta ao teto; achado do throttling de CPU (51% dos períodos) | `3da8e3e`, `adf386e`, `c9835b3`, `d4f8c22` |
 | 2026-11-09 | Pré-teste do índice de trigramas para a busca (consultas parametrizadas, equivalência, `ROLLBACK`); hipótese do experimento 10 escrita antes da mudança | `6b85ec8`, `5157d27` |
 | 2026-11-09 | Experimento 10 (feito pelo Claude Code a pedido): índice `pg_trgm`; +24% req/s, busca −67%; banco segue no teto | `0520020`, `668745f`, `d1f3c8f` |
-| 2026-11-09 | Pré-teste da contagem por status pré-calculada (equivalência inclusive para status sem pedidos, `ROLLBACK`); hipótese do experimento 11 escrita antes da mudança | `diagnostico/14-contagem-status/`, este diário |
+| 2026-11-09 | Pré-teste da contagem por status pré-calculada (equivalência inclusive para status sem pedidos, `ROLLBACK`); hipótese do experimento 11 escrita antes da mudança | `7f38a53`, `3006ca4` |
+| 2026-11-09 | Experimento 11 (feito pelo Claude Code a pedido): contagem por status pré-calculada; +53% req/s, p99 −33%; só `vendas-por-dia` segue lenta | `5054472`, `32bfba2`, `d4bfdf4` |
 
 ## Ambiente
 
@@ -100,7 +101,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); **resolvido no experimento 06** (late row lookup: p95 da rota 28 s → 1,5 s) |
-| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parecia resolvido no Diagnóstico 03 (42 ms quente, 2,5% do banco), mas voltou a pesar no Diagnóstico 04: 27,0% (346 chamadas × 87 ms), porque o resto encolheu; prioridade 3 |
+| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parecia resolvido no Diagnóstico 03 (42 ms quente, 2,5% do banco), mas voltou a pesar no Diagnóstico 04: 27,0%; **resolvido no experimento 11** (contagem pré-calculada: rota 392 → 103 ms) |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); transporte de ~12.900 linhas por chamada **resolvido no experimento 09** (agregação no SQL: 7 linhas, API de 96% para ~20% da cota) |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | **resolvido no experimento 08** (rota 974 → 195 ms; banco caiu de 87% para 63% de CPU) |
@@ -1145,7 +1146,7 @@ Throttling do banco (`cpu.stat` lido logo depois das medições, acumulado desde
 
 ### 11-contagem-por-status
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — ganho grande em vazão; `vendas-por-dia` ficou como a única rota lenta. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P5 (`/pedidos?status=`): a cada página a rota conta todos os pedidos do status. Mesmo com `Index Only Scan` (experimento 02) e `Heap Fetches: 0`, conta até 300 mil entradas por chamada. Diagnóstico 04: 27,0% do tempo do banco; experimento 10: rota com mediana ~392 ms, ~780 chamadas por execução. Prioridade 3 do Diagnóstico 04.
 - **Pré-teste (fato, `diagnostico/14-contagem-status/pre-teste.txt`; tudo dentro de transação com `ROLLBACK`, conferido que nada ficou; planos customizados como na API):**
   - Hoje: `pago` **65,3 ms** (`Parallel Index Only Scan`, 300 mil entradas), `pendente` 5,8 ms.
@@ -1163,12 +1164,64 @@ Throttling do banco (`cpu.stat` lido logo depois das medições, acumulado desde
 - **Por que esta e não outra:** ver [Alternativas](#alternativas).
 - **Uma mudança lógica, dois arquivos:** `banco/09-contagem-pedidos-status.sql` + a consulta de contagem em `api/src/rotas.js` (rota `/pedidos`), no mesmo commit.
 - **Cuidados de contrato:** `total` continua `Number(...)` de um `bigint`; o `coalesce` mantém 0 para status sem pedidos; a validação de status (400) acontece antes, sem mudança; a consulta de página do experimento 06 não muda.
-- **Mudança:** commit `<preencher>`
+- **Mudança:** `banco/09-contagem-pedidos-status.sql` + a consulta de contagem da rota `/pedidos` — commit `5054472`. Evidência em `32bfba2` (commit medido). Resultados em `d4bfdf4`.
 - **Custo esperado:** 48 kB; ~94 ms a mais na criação do banco; em produção, o custo e o atraso do `REFRESH` (não testado).
-- **Antes:** experimento 10, 3 pastas de 09/11 22:36–22:39 (mesma sessão).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência
+
+- Log da criação do banco: `running /docker-entrypoint-initdb.d/09-contagem-pedidos-status.sql` e `SELECT 4`. A visão de 4 linhas não recebe autovacuum (abaixo do limiar); irrelevante, ela cabe numa página.
+- `diagnostico/14-contagem-status/explain-depois.txt`: 0,030 ms (`pago`) e 0,013 ms (`pendente`); conteúdo da visão: cancelado 50.000, entregue 125.000, pago 300.000, pendente 25.000. 48 kB no total.
+- Contrato conferido antes de medir: todos os casos de `/pedidos` iguais, inclusive `pagina=15000`, `status=perdido` (400) e `pagina=0` (400).
+
+#### Medição sob carga (09/11, mesma sessão do experimento 10)
+
+- **Contrato:** mantido nas 3 execuções
+- **Antes:** experimento 10, 3 pastas de 22:36–22:39.
+- **Depois:** commit `32bfba2`, pastas:
+  - [`resultados/20261109-224702-11-contagem-por-status`](../resultados/20261109-224702-11-contagem-por-status/resumo.txt)
+  - [`resultados/20261109-224822-11-contagem-por-status`](../resultados/20261109-224822-11-contagem-por-status/resumo.txt)
+  - [`resultados/20261109-224942-11-contagem-por-status`](../resultados/20261109-224942-11-contagem-por-status/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 224702 | 136.15 | 98.2 ms | 608.4 ms | 999.8 ms | 0.00% | 96.4% | 475.3 MiB | 14.8% | 26.5 MiB |
+| 224822 | 139.61 | 97.7 ms | 604.7 ms | 994.7 ms | 0.00% | 98.6% | 478.9 MiB | 14.9% | 27.3 MiB |
+| 224942 | 139.13 | 97.9 ms | 605.1 ms | 982.2 ms | 0.00% | 98.7% | 476.3 MiB | 14.9% | 27.2 MiB |
+| **Mediana** | **139.13** | **97.9 ms** | **605.1 ms** | **994.7 ms** | — | **98.6%** | **476.3 MiB** | **14.9%** | **27.2 MiB** |
+
+| Métrica (mediana das 3) | 10-busca-trigramas | 11-contagem-por-status | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 91.15 | 139.13 | **+53%** (faixas 90,09–91,26 → 136,15–139,61) |
+| p95 geral | 809.8 ms | 605.1 ms | −25% (faixas 0,81–0,89 s → 0,60–0,61 s) |
+| p99 geral | 1491.2 ms | 994.7 ms | **−33%** (faixas 1,40–1,81 s → 0,98–1,00 s) |
+| Mediana geral | 100.7 ms | 97.9 ms | ≈ (degrau de ~100 ms) |
+| Banco CPU média | 98.9% | 98.6% | ≈ no teto |
+| Banco mem média | 463.6 MiB | 476.3 MiB | +12,7 MiB; **máximo 496,6 MiB de 512** |
+| API CPU média | 12.1% | 14.9% | sobe com as req/s |
+| API mem média | 26.2 MiB | 27.2 MiB | ≈ |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 10 → 11 | Mediana 10 | Mediana 11 | p95 10 → 11 |
+| --- | --- | --- | --- | --- |
+| `pedidos-por-status` | 777–786 → 1203–1225 | 391.6 ms | 103.4 ms (**−74%**) | 904.6 → 208.0 ms (−77%) |
+| `vendas-por-dia` | 418–427 → 661–681 | 802.1 ms | 698.6 ms (−13%) | 2207.4 → 1199.5 ms (−46%); p99 1,6–1,9 s |
+| `cliente`, `cliente-por-email`, `pedidos-do-cliente`, `busca-produtos`, `top-produtos` | ~+50% cada | 95.4 / 97.2 / 102.9 / 100.0 / 97.3 ms | 92.8 / 93.3 / 99.8 / 99.2 / 93.1 ms | todas com p95 ≤ 204 ms |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `pedidos-por-status` cai para o degrau de ~100–200 ms | confirmada: 103 ms |
+| req/s sobe; banco continua no teto | confirmada: +53%; 98,6% |
+| `vendas-por-dia` passa a decidir sozinha p95 e p99 | confirmada: é a única rota com p95 acima de ~210 ms (1,2 s) |
+
+**Leitura:** o ganho (+53%) foi maior que o do experimento 10 (+24%), coerente com o Diagnóstico 04 (contagem e busca com peso parecido, ~27–29% do banco cada, mas a contagem por chamada era mais cara: 65 ms contra ~10 ms ociosos). Agora 6 das 7 rotas estão no degrau mínimo de ~100 ms do throttling; o que sobra no banco é quase só `vendas-por-dia`.
+
+**Risco que voltou:** memória do banco com máximo de 496,6 MiB num limite de 512 MiB (registrado também no experimento 07). Não investigado.
+
+- **Conclusão:** aplicada e medida, com ganho grande: +53% de vazão, p99 −33%, a rota −74%, por uma visão de 48 kB, com equivalência provada (inclusive para status sem pedidos). Mesma ressalva de dados estáticos do experimento 07.
+- **Gargalo que apareceu depois:** só `vendas-por-dia` (~700 ms; agrega ~13 mil itens por chamada, 661–681 chamadas por execução). Candidato: resumo por dia pré-calculado (a contagem de pedidos distintos por dia é somável entre dias, porque cada pedido pertence a um só dia).
 
 ## Fontes
 
