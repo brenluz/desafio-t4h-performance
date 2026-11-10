@@ -1,0 +1,23 @@
+# Contadores de cgroup v2 (CFS bandwidth) lidos logo depois das 3 medições do experimento 09.
+# Acumulados desde o início de cada container (inclui aquecimentos e verificações de contrato), não só a janela medida.
+Mon Nov  9 22:27:29 -03 2026
+== banco
+cpu.max: 100000 100000
+usage_usec 308229923
+user_usec 205110961
+system_usec 103118962
+nr_periods 4514
+nr_throttled 2291
+throttled_usec 2621780313
+nr_bursts 0
+burst_usec 0
+== api
+cpu.max: 50000 100000
+usage_usec 23841494
+user_usec 15635640
+system_usec 8205854
+nr_periods 2344
+nr_throttled 7
+throttled_usec 383881
+nr_bursts 0
+burst_usec 0
