@@ -1,0 +1,17 @@
+Medição: 10-busca-trigramas
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        5440
+Requisições/s:      90.09
+Tempo de resposta:  mediana 100.4 ms | p95 809.8 ms | p99 1805.1 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               1401      95.2 ms       104.4 ms      199.6 ms      0.0%    
+cliente-por-email     803       97.1 ms       198.6 ms      295.3 ms      0.0%    
+pedidos-do-cliente    1143      102.3 ms      291.9 ms      303.8 ms      0.0%    
+pedidos-por-status    777       306.4 ms      902.3 ms      1124.9 ms     0.0%    
+busca-produtos        801       100.0 ms      196.9 ms      204.4 ms      0.0%    
+vendas-por-dia        418       805.6 ms      2519.7 ms     3398.8 ms     0.0%    
+top-produtos          97        93.8 ms       103.3 ms      411.9 ms      0.0%    
