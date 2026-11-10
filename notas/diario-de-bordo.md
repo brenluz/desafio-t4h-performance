@@ -51,6 +51,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 07 (feito pelo Claude Code a pedido): visão materializada; 2,7× req/s, p95 −80%, p99 −90%; mediana +26%; CPU da API e memória do banco perto do limite | `02fe13e`, `15eb4a4`, `a3ffd77` |
 | 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `c5d1b6a`, `39a4993` |
 | 2026-11-09 | Experimento 08 (feito pelo Claude Code a pedido): índice de e-mail; +15,5% req/s, p95 −15%; banco a 63% de CPU, API a 96% da cota: gargalo passou para a API | `516c2ad`, `3dd7fa4`, `6d2aa5c` |
+| 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `diagnostico/11-diagnostico-04/` |
 
 ## Ambiente
 
@@ -94,14 +95,14 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); **resolvido no experimento 06** (late row lookup: p95 da rota 28 s → 1,5 s) |
-| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | na prática resolvido: com o mapa de visibilidade preenchido, o `Index Only Scan` caiu para 42 ms quente e 2,5% do banco (Diagnóstico 03) |
+| P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parecia resolvido no Diagnóstico 03 (42 ms quente, 2,5% do banco), mas voltou a pesar no Diagnóstico 04: 27,0% (346 chamadas × 87 ms), porque o resto encolheu; prioridade 3 |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | **resolvido no experimento 08** (rota 974 → 195 ms; banco caiu de 87% para 63% de CPU) |
-| P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | a investigar |
+| P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | virou 29,3% do banco no Diagnóstico 04 (384 chamadas × 85 ms); prioridade 2 |
 | P10 | Postgres com configuração padrão | `docker-compose.yml` (sem `command`) | seção `settings`: `shared_buffers` 128 MB, `work_mem` 4 MB, 2 workers paralelos | Tabelas quentes (~280 MB) não cabem no cache; paralelismo num container de 1 CPU talvez só atrapalhe | a investigar |
 | P11 | `SELECT *` em todas as rotas | `api/src/rotas.js` | `observacoes` média 274 caracteres | Lê e transfere colunas que a rota não devolve | a investigar |
-| P12 | Log com o corpo inteiro de cada resposta | `api/src/server.js` | 591 linhas = 647 KB de log; maior linha 6.324 caracteres | Custo de CPU na API; irrelevante hoje (API a 7%), pode aparecer depois que o banco melhorar | a investigar |
+| P12 | Log com o corpo inteiro de cada resposta | `api/src/server.js` | 591 linhas = 647 KB de log; maior linha 6.324 caracteres | Custo de CPU na API; irrelevante hoje (API a 7%), pode aparecer depois que o banco melhorar | medido no Diagnóstico 04: 3 MB de log por minuto, mas `JSON.stringify`/escrita não aparecem entre as funções quentes; prioridade 4 |
 
 Cuidados de contrato ao mexer: manter ordem (`criado_em DESC, id DESC`, `nome, id`, `receita DESC, id`), tipos (somas passam por `Number(...)`), e os casos de erro (`pagina=0`, `2024-02-30`, período invertido, `limite=0`/`51`).
 
@@ -173,6 +174,51 @@ Leitura (fatos do `ranking.txt` e `consultas-ociosas.txt`; hipóteses marcadas):
 | 5+ | `count(*)` (2,5%), `ILIKE` (2,2%), log da API (P12; API a ~18% de CPU) | ~5% | — | próximos testes |
 
 **Decisão (Diagnóstico 03):** a ordem anterior apontava `top-produtos` como próximo alvo; o ranking mostra que a página de `/pedidos` custa mais que o dobro dele. Próximo experimento: P4b. Os itens 2–4 vêm depois, cada um medido separadamente.
+
+## Diagnóstico 04: onde a API e o banco gastam CPU depois do experimento 08
+
+Contexto: no experimento 08 o banco caiu para 63% de CPU e a API subiu para 96% da sua cota (0,5 CPU). Otimizar só o banco deixou de bastar; era preciso ver dentro do processo Node.
+
+Evidência: [`diagnostico/11-diagnostico-04/`](../diagnostico/11-diagnostico-04/). Feito pelo Claude Code a pedido. O `coletar.sh` sobe o banco com `pg_stat_statements` (compose do Diagnóstico 02) e a API com o profiler de amostragem do V8 (`node --prof`, compose à parte `docker-compose.api-prof.yml`), roda a mesma carga do `medir.sh` (20 VUs, 60 s, semente 42), coleta o ranking, o volume de log da API por rota e o perfil de CPU (`node --prof-process`), e devolve banco e API à configuração normal (conferido: API rodando `node src/server.js`). Código: experimentos 01–08.
+
+**Custo do diagnóstico:** com profiler, 40,98 req/s, ~10% abaixo do experimento 08 (45,40). Esperado: o `--prof` registra amostras continuamente.
+
+### API (`perfil-api.txt`)
+
+- **Fato:** 23,9% de todas as amostras são coleta de lixo (GC); 9,7% são JavaScript identificado. 52,7% ficaram "Unaccounted" e 37,7% em bibliotecas compartilhadas: o `--prof-process` dentro do container Alpine não consegue resolver os símbolos C++ do binário do Node (falta `nm`/binutils na imagem). **Limite:** a divisão fina do código nativo não é confiável; a leitura vale para as partes em JS e para o GC.
+- **Fato:** no perfil "bottom up", as funções JS que mais chamam esse código nativo são todas do caminho de **leitura de linhas vindas do banco**: `parseDate` de `postgres-date` (23,1%, converte cada `timestamp` em `Date`), `parseDataRowMessage` de `pg-protocol` (12,1%), `_handleDataRow` do `pg` (5,9%), `parseInteger` (2,8%), e o próprio handler de `vendas-por-dia` (`rotas.js:162`, 7,2%, o laço que soma por dia).
+- **Fato (cruzando com o ranking, coluna `rows`):** de ~2,46 milhões de linhas devolvidas pelo banco à API em 60 s, **2.430.485 (≈ 99%) são de `vendas-por-dia`** (188 chamadas × ~12.900 linhas, cada uma com `criado_em` e `observacoes` de ~274 caracteres, que a rota nem usa). Todas as outras consultas juntas devolveram ~25 mil linhas.
+- **Hipótese (forte):** a CPU da API é dominada por `vendas-por-dia`: analisar ~2,4 milhões de linhas por minuto, criar 2,4 milhões de objetos `Date` e strings de `observacoes` (ordem de 670 MB alocados por minuto só nessa coluna), e o GC limpando tudo isso.
+- **Fato (`log-api.txt`):** a API escreveu 3,07 MB de log em 60 s (2.486 linhas, ~1,2 KB por linha; maiores: `pedidos-do-cliente` 2,3 KB/linha, `busca-produtos` 2,0 KB, `pedidos-por-status` 2,0 KB). `JSON.stringify` e escrita de log não aparecem entre as funções quentes. **P12 (log) é real mas pequeno perto do resto.**
+
+### Banco (`ranking.txt`)
+
+Soma do `total_exec_time`: ~111 s em 60 s (≈ 1,9 consultas em andamento em média; no Diagnóstico 03 eram ~20). O banco já não tem fila longa.
+
+| # | Consulta (rota) | % do tempo | Chamadas | Média sob carga | Linhas devolvidas |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `vendas-por-dia` (join, ~12.900 linhas por chamada) | **39,3%** | 188 | 232,2 ms | 2.430.485 |
+| 2 | `busca-produtos` (`ILIKE '%termo%'`, Seq Scan) | **29,3%** | 384 | 84,9 ms | 7.680 |
+| 3 | `count(*)` por status | **27,0%** | 346 | 86,9 ms | 346 |
+| 4 | `pedidos-do-cliente` (consulta única) | 2,2% | 519 | 4,6 ms | 7.725 |
+| 5 | página de `/pedidos` (late lookup) | 1,5% | 346 | 4,7 ms | 6.920 |
+| 6 | `cliente-por-email` | 0,5% | 361 | 1,5 ms | 361 |
+| 7 | `clientes/:id` | 0,3% | 1.163 | 0,3 ms | 1.163 |
+| 8 | `top-produtos` (visão) | 0,0% | 44 | 0,5 ms | 440 |
+
+- **Fato:** as três primeiras somam **95,6%** do banco. As otimizadas nos experimentos 03, 06, 07 e 08 viraram ruído (≤ 2,2% cada).
+- **Fato:** `busca-produtos` (P9) e `count(*)` (P5) eram 2,2% e 2,5% no Diagnóstico 03 e agora são 29% e 27%: não ficaram mais caras por chamada no ocioso; ganharam peso relativo porque todo o resto encolheu e porque são chamadas ~3× mais.
+
+### Prioridades revistas
+
+| Prioridade | Problema | Peso | Ideia | Por quê |
+| --- | --- | --- | --- | --- |
+| **1** | **P6c: `vendas-por-dia` agregada no Node** | **~99% das linhas que a API analisa + 39,3% do banco** | agregar no SQL (`GROUP BY` dia; `count(DISTINCT pedido)`, `sum`), devolvendo ≤ 31 linhas | ataca **os dois** recursos ao mesmo tempo: some quase todo o trabalho de análise de linhas, `Date` e GC da API, e o banco deixa de mandar 2,4 mi de linhas/min |
+| 2 | P9: `ILIKE '%termo%'` | 29,3% do banco | índice GIN com `pg_trgm` | extensão padrão do PostgreSQL; consulta igual |
+| 3 | P5: `count(*)` por status | 27,0% do banco | contagem pré-calculada por status (visão materializada de 4 linhas) ou contador | mesma discussão de dados derivados do experimento 07 |
+| 4 | P12: log com corpo inteiro | 3 MB/min; não aparece no perfil | reduzir o que vai para o log | pequeno; e muda comportamento observável (log), não o contrato |
+
+**Decisão (Diagnóstico 04):** próximo experimento é P6c. É o único que alivia a API (o teto atual) e o maior consumidor do banco ao mesmo tempo.
 
 ## Experimentos
 
@@ -1016,3 +1062,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 06, calculou medianas, faixas e variações por rota e escreveu a análise | Números copiados de `explain-depois.txt`, `pre-teste.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 07 inteiro**: pré-teste com prova de equivalência, hipótese, `banco/06-resumo-vendas-produto.sql`, mudança na rota, recriação do banco, evidência, contrato, 3 medições e commits; abriu F13 e F14 | Revisar o código e o SQL; equivalência provada no pré-teste (0 diferenças em 19.206 linhas) e pelo verificador de contrato; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 08** (índice de e-mail): pré-teste, hipótese, `.sql`, recriação do banco, evidência, contrato, medições e commits; abriu F15 e conferiu o exemplo de `lower()` em F10 | Saídas brutas em `diagnostico/10-email/`; números conferíveis nos arquivos |
+| 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 04**: script com profiler do V8 na API (compose à parte) + `pg_stat_statements` + volume de log por rota; interpretou o perfil e propôs as prioridades | Saídas brutas em `diagnostico/11-diagnostico-04/` (`perfil-api.txt`, `ranking.txt`, `log-api.txt`, `carga.txt`); o limite do perfil (símbolos C++ não resolvidos no Alpine) está registrado |
