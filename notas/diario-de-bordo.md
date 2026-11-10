@@ -49,7 +49,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab`, `a39645d` |
 | 2026-11-09 | Pré-teste da visão materializada para `top-produtos` (equivalência linha a linha, `ROLLBACK`); hipótese do experimento 07 escrita antes da mudança | `7fd5034`, `ec7d902` |
 | 2026-11-09 | Experimento 07 (feito pelo Claude Code a pedido): visão materializada; 2,7× req/s, p95 −80%, p99 −90%; mediana +26%; CPU da API e memória do banco perto do limite | `02fe13e`, `15eb4a4`, `a3ffd77` |
-| 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `diagnostico/10-email/`, este diário |
+| 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `c5d1b6a`, `39a4993` |
+| 2026-11-09 | Experimento 08 (feito pelo Claude Code a pedido): índice de e-mail; +15,5% req/s, p95 −15%; banco a 63% de CPU, API a 96% da cota: gargalo passou para a API | `516c2ad`, `3dd7fa4`, `6d2aa5c` |
 
 ## Ambiente
 
@@ -96,7 +97,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | na prática resolvido: com o mapa de visibilidade preenchido, o `Index Only Scan` caiu para 42 ms quente e 2,5% do banco (Diagnóstico 03) |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
-| P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | confirmado (Diagnóstico 03: 6,3%); depois do experimento 07 provavelmente o maior consumidor do banco (~335 chamadas × ~77 ms por execução); a confirmar |
+| P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | **resolvido no experimento 08** (rota 974 → 195 ms; banco caiu de 87% para 63% de CPU) |
 | P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | a investigar |
 | P10 | Postgres com configuração padrão | `docker-compose.yml` (sem `command`) | seção `settings`: `shared_buffers` 128 MB, `work_mem` 4 MB, 2 workers paralelos | Tabelas quentes (~280 MB) não cabem no cache; paralelismo num container de 1 CPU talvez só atrapalhe | a investigar |
 | P11 | `SELECT *` em todas as rotas | `api/src/rotas.js` | `observacoes` média 274 caracteres | Lê e transfere colunas que a rota não devolve | a investigar |
@@ -843,7 +844,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 ### 08-indice-email
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — ganho; **o banco saiu da saturação e o gargalo passou para a API**. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P8 (`/clientes?email=`): `lower(email) = lower($1)` sem índice que sirva → `Seq Scan` em 100 mil clientes a cada chamada. Decidido fazer antes do Diagnóstico 04 (escolha do Breno), com base na estimativa do experimento 07.
 - **Situação atual (fato, `diagnostico/10-email/pre-teste.txt`, banco ocioso):** `Seq Scan on clientes`, 99.999 linhas descartadas, **29,3 ms** (e-mail existente) e 29,6 ms (`CLIENTE3@EXEMPLO.COM`). No experimento 07 a rota foi chamada 320–345 vezes por execução: só esta consulta, ociosa, seria ~10 s de CPU do banco em 60 s; sob carga, mais.
 - **Pré-teste (fato, mesmo arquivo; índice criado dentro de transação com `ROLLBACK`, conferido que nada ficou):** `Index Scan using clientes_lower_email_idx` em 0,077 ms (existente), 0,043 ms (maiúsculas) e 0,036 ms (inexistente). Índice de **4.792 kB**. Não há e-mails repetidos em `lower(email)`.
@@ -858,13 +859,69 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Fonte da ideia:** F10 (PostgreSQL 16, 11.7): o próprio exemplo da documentação é este caso — "a common way to do case-insensitive comparisons is to use the lower function" e "CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1))". F15 (`citext`) como alternativa.
 - **Por que índice simples e não `UNIQUE`:** F10 diz que um índice `UNIQUE` em `lower()` impediria e-mails que diferem só em maiúsculas. Hoje não há repetidos, mas isso seria uma regra de negócio nova (e a rota devolve uma **lista**, prevendo vários clientes com o mesmo e-mail). Fora do escopo de desempenho.
 - **Cuidados de contrato:** consulta igual, só muda o plano; `ORDER BY id` continua.
-- **Mudança:** `banco/07-indice-clientes-email.sql` — commit `<preencher>`
+- **Mudança:** `banco/07-indice-clientes-email.sql` — commit `516c2ad`. Evidência em `3dd7fa4` (commit medido). Resultados em `6d2aa5c`.
 - **Custo esperado:** ~4,8 MB de índice; escrita em `clientes` mais lenta (não aparece aqui).
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 07, 3 pastas de 21:36–21:39 em [07-top-produtos-visao-materializada](#07-top-produtos-visao-materializada) (mesma sessão)
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência
+
+- Log da criação do banco: `running /docker-entrypoint-initdb.d/07-indice-clientes-email.sql`; autovacuum concluído em todas as tabelas antes de medir (~90 s).
+- `diagnostico/10-email/explain-depois.txt`: os 4 casos de e-mail do contrato (`cliente3@exemplo.com`, `Cliente4@Exemplo.com`, `CLIENTE10@EXEMPLO.COM`, `ninguem@exemplo.com`) usam `Index Scan using clientes_lower_email_idx`, 0,075–0,117 ms. Antes: `Seq Scan`, 29,3 ms.
+- `tamanho-indices.txt`: `clientes_lower_email_idx` 4.792 kB.
+- Contrato conferido antes de medir: os 5 casos de e-mail iguais.
+
+#### Medição sob carga (09/11, mesma sessão do experimento 07)
+
+- **Contrato:** mantido nas 3 execuções
+- **Antes:** experimento 07, 3 pastas de 21:36–21:39 (a execução extra de 21:49 confirma a faixa)
+- **Depois:** commit `3dd7fa4`, pastas:
+  - [`resultados/20261109-215711-08-indice-email`](../resultados/20261109-215711-08-indice-email/resumo.txt)
+  - [`resultados/20261109-215833-08-indice-email`](../resultados/20261109-215833-08-indice-email/resumo.txt)
+  - [`resultados/20261109-215955-08-indice-email`](../resultados/20261109-215955-08-indice-email/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 215711 | 42.47 | 393.9 ms | 1207.6 ms | 1612.6 ms | 0.00% | 57.9% | 450.3 MiB | 49.1% | 45.5 MiB |
+| 215833 | 45.40 | 319.7 ms | 1191.8 ms | 1772.0 ms | 0.00% | 62.9% | 455.5 MiB | 48.2% | 52.6 MiB |
+| 215955 | 46.31 | 314.0 ms | 1198.9 ms | 1608.0 ms | 0.00% | 73.8% | 451.4 MiB | 47.7% | 40.9 MiB |
+| **Mediana** | **45.40** | **319.7 ms** | **1198.9 ms** | **1612.6 ms** | — | **62.9%** | **451.4 MiB** | **48.2%** | **45.5 MiB** |
+
+| Métrica (mediana das 3) | 07-top-produtos-visao-materializada | 08-indice-email | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 39.30 | 45.40 | +15,5% (faixas 36,18–39,33 → 42,47–46,31, sem sobreposição) |
+| p95 geral | 1404.0 ms | 1198.9 ms | −14,6% (faixas 1,37–1,45 s → 1,19–1,21 s, sem sobreposição) |
+| p99 geral | 1948.2 ms | 1612.6 ms | −17,2% (faixas 1,84–2,20 s → 1,61–1,77 s, sem sobreposição) |
+| Mediana geral | 383.8 ms | 319.7 ms | −16,7% (faixas 365–425 → 314–394 ms, **se sobrepõem**) |
+| Banco CPU média | 86.9% | 62.9% | **−24 p.p.: o banco saiu da saturação** (57,9–73,8%) |
+| Banco mem média | 478.3 MiB | 451.4 MiB | −27 MiB (máx. 497,1 MiB) |
+| API CPU média | 44.6% | 48.2% | **96% da cota de 0,5 CPU: a API é o novo teto** |
+| API mem média | 47.8 MiB | 45.5 MiB | ≈ igual |
+
+Por rota (mediana das medianas):
+
+| Rota | Mediana 07 | Mediana 08 | Variação |
+| --- | --- | --- | --- |
+| `cliente-por-email` | 973.5 ms | 195.2 ms | **−80%** |
+| `vendas-por-dia` | 1077.6 ms | 969.0 ms | −10% |
+| `busca-produtos` | 439.3 ms | 413.3 ms | −6% |
+| `pedidos-por-status` | 615.8 ms | 630.9 ms | ≈ igual |
+| `pedidos-do-cliente` | 210.9 ms | 297.3 ms | **+41%** |
+| `cliente` | 102.5 ms | 181.5 ms | **+77%** |
+| `top-produtos` | 130.4 ms | 193.0 ms | **+48%** |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `Index Scan` no novo índice | confirmada (4 casos, ≤ 0,12 ms) |
+| `cliente-por-email` cai para perto de `cliente` | confirmada: 974 → 195 ms; hoje as duas estão em ~180–195 ms |
+| Mediana geral cai e as rotas rápidas melhoram | **parcial/refutada**: mediana geral −17% (faixas se sobrepõem), mas `cliente` (+77%), `pedidos-do-cliente` (+41%) e `top-produtos` (+48%) **pioraram** |
+| req/s sobe pouco porque a API está perto do teto | confirmada: +15,5%, e a API chegou a 96% da cota |
+| CPU do banco cai abaixo de 87% | confirmada: 62,9% |
+
+**Por que as rotas mais baratas pioraram (hipótese):** pela primeira vez o banco tem folga (63% de CPU), mas a API está a 96% da sua cota de 0,5 CPU. As rotas cujo trabalho no banco é quase nulo (`cliente`: uma busca por chave primária; `top-produtos`: 10 linhas prontas) agora gastam o tempo esperando a vez no processo Node (laço de eventos com uma CPU limitada), não no banco. O gargalo mudou de lugar: daqui para frente, otimizar o banco quase não ajuda; o que pesa é o trabalho da API por requisição (serializar JSON, gravar o corpo inteiro de cada resposta no log — P12 —, receber e somar ~12.900 linhas por `vendas-por-dia`, converter datas).
+
+- **Conclusão:** aplicada e medida, com ganho: +15,5% de vazão, p95 −15%, p99 −17% e a rota −80%, por um índice de 4,8 MB. O resultado mais importante é estrutural: **o banco deixou de ser o gargalo** (63% de CPU) e **a API passou a ser** (96% da cota).
+- **Gargalo que apareceu depois:** CPU da API. Diagnóstico 04 deve medir onde o processo Node gasta CPU.
 
 ## Fontes
 
