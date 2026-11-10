@@ -1,0 +1,48 @@
+SET
+PREPARE
+##### pago
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=1.05..1.06 rows=1 width=8) (actual time=0.007..0.007 rows=1 loops=1)
+   Buffers: shared hit=1
+   InitPlan 1 (returns $0)
+     ->  Seq Scan on contagem_pedidos_status  (cost=0.00..1.05 rows=1 width=8) (actual time=0.005..0.005 rows=1 loops=1)
+           Filter: (status = 'pago'::text)
+           Rows Removed by Filter: 3
+           Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=71
+ Planning Time: 0.440 ms
+ Execution Time: 0.030 ms
+(11 rows)
+
+##### pendente
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=1.05..1.06 rows=1 width=8) (actual time=0.006..0.006 rows=1 loops=1)
+   Buffers: shared hit=1
+   InitPlan 1 (returns $0)
+     ->  Seq Scan on contagem_pedidos_status  (cost=0.00..1.05 rows=1 width=8) (actual time=0.004..0.005 rows=1 loops=1)
+           Filter: (status = 'pendente'::text)
+           Rows Removed by Filter: 3
+           Buffers: shared hit=1
+ Planning Time: 0.044 ms
+ Execution Time: 0.013 ms
+(9 rows)
+
+##### conteudo da visao
+  status   | total  
+-----------+--------
+ cancelado |  50000
+ entregue  | 125000
+ pago      | 300000
+ pendente  |  25000
+(4 rows)
+
+##### tamanho
+              relname               | pg_size_pretty 
+------------------------------------+----------------
+ contagem_pedidos_status            | 32 kB
+ contagem_pedidos_status_status_idx | 16 kB
+(2 rows)
+
