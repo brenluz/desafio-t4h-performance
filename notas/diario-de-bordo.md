@@ -52,7 +52,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `c5d1b6a`, `39a4993` |
 | 2026-11-09 | Experimento 08 (feito pelo Claude Code a pedido): índice de e-mail; +15,5% req/s, p95 −15%; banco a 63% de CPU, API a 96% da cota: gargalo passou para a API | `516c2ad`, `3dd7fa4`, `6d2aa5c` |
 | 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `bd0a058`, `a527d2e` |
-| 2026-11-09 | Pré-teste de equivalência da agregação no SQL (735 janelas, 0 diferenças); hipótese do experimento 09 escrita antes da mudança | `diagnostico/12-vendas-sql/`, este diário |
+| 2026-11-09 | Pré-teste de equivalência da agregação no SQL (735 janelas, 0 diferenças); hipótese do experimento 09 escrita antes da mudança | `a682db8`, `9b928a0` |
+| 2026-11-09 | Experimento 09 (feito pelo Claude Code a pedido): agregação no SQL; +62% req/s, mediana −67%, API de 96% para ~20% da cota; banco de volta ao teto; achado do throttling de CPU (51% dos períodos) | `3da8e3e`, `adf386e`, `c9835b3`, `d4f8c22` |
 
 ## Ambiente
 
@@ -97,7 +98,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
 | P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); **resolvido no experimento 06** (late row lookup: p95 da rota 28 s → 1,5 s) |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | parecia resolvido no Diagnóstico 03 (42 ms quente, 2,5% do banco), mas voltou a pesar no Diagnóstico 04: 27,0% (346 chamadas × 87 ms), porque o resto encolheu; prioridade 3 |
-| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
+| P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); transporte de ~12.900 linhas por chamada **resolvido no experimento 09** (agregação no SQL: 7 linhas, API de 96% para ~20% da cota) |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); **resolvido no experimento 07** (visão materializada: 37,9 s → 0,13 s sob carga); atualização em produção não testada |
 | P8 | Busca por e-mail com `lower(email)` sem índice | `/clientes?email=` | Seq Scan 100 mil linhas, 84 ms | Falta índice de expressão em `lower(email)` | **resolvido no experimento 08** (rota 974 → 195 ms; banco caiu de 87% para 63% de CPU) |
 | P9 | Busca `ILIKE '%termo%'` | `/produtos/busca` | Seq Scan 20 mil linhas, 24 ms | Índice B-tree não serve com `%` no começo; tabela pequena, prioridade baixa | virou 29,3% do banco no Diagnóstico 04 (384 chamadas × 85 ms); prioridade 2 |
@@ -972,7 +973,7 @@ Por rota (mediana das medianas):
 
 ### 09-vendas-agregada-no-sql
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — maior queda de mediana do desafio; a API saiu do teto e o banco voltou a ser o limite. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P6c (`vendas-por-dia`): a rota traz ~12.900 linhas (pedido × item, com `criado_em` e `observacoes`) para somar por dia no Node. Diagnóstico 04: ≈ 99% das linhas que a API analisa (2,43 mi em 60 s), a maior parte da CPU da API (análise de linhas, `parseDate`, GC) e 39,3% do tempo do banco. Prioridade 1 do Diagnóstico 04.
 - **Pré-teste (fato, `diagnostico/12-vendas-sql/pre-teste.txt`; só leitura):**
   - **Equivalência (`equivalencia.js`, rodado dentro do container da API — mesmo Node 20.18, mesmo `pg`, `TZ=UTC`):** para cada janela, roda a consulta atual + a agregação em JS copiada de `rotas.js`, e a consulta nova + a formatação nova, e compara o `JSON.stringify` dos dois. **735 janelas** (as 725 que a carga pode sortear, as 4 do contrato que devolvem 200, e 6 bordas: 31 dias, fora dos dados antes e depois, último dia, 29/02/2024), **5.160 dias, 0 diferenças**. Essas janelas, pelo caminho atual, levariam 9.529.464 linhas para a API.
@@ -987,12 +988,74 @@ Por rota (mediana das medianas):
 - **O que derrubaria a hipótese:** CPU da API sem queda clara, ou req/s sem mudança além da variação.
 - **Fonte:** a ideia vem do Diagnóstico 04 (medição própria). Fonte externa a buscar na fase de pesquisa (ex.: documentação de agregação do PostgreSQL / custo de transferir linhas ao cliente).
 - **Cuidados de contrato (todos cobertos pela prova de equivalência):** `dia` sai como texto `'YYYY-MM-DD'` via `to_char` (um `date` cru viraria `Date` no Node e mudaria o JSON); `count`/`sum` voltam como `bigint` em texto e passam por `Number()`; ordem por dia crescente; dias sem venda continuam ausentes; só pedidos com itens contam (o `JOIN` interno é o mesmo); ordem dos campos `dia, pedidos, itens, receita_centavos`. Validação de datas e erros 400 intocados.
-- **Mudança:** `api/src/rotas.js`, rota `vendas-por-dia` — commit `<preencher>`
+- **Mudança:** `api/src/rotas.js`, rota `vendas-por-dia`: a consulta passa a agrupar por dia no banco e a rota só formata as ≤ 31 linhas (−22 linhas de JS) — commit `3da8e3e`. Evidência em `adf386e` (commit medido). Resultados em `c9835b3`.
 - **Custo esperado:** um pouco mais de CPU no banco por chamada (agrupar e contar distintos), compensado por não serializar e enviar as linhas.
-- **Antes:** experimento 08, 3 pastas de 09/11 21:57–21:59. Entre eles houve o Diagnóstico 04 (containers recriados, sem `down -v`).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência
+
+- `diagnostico/12-vendas-sql/explain-depois.txt`: `GroupAggregate` sobre o `Bitmap Index Scan on pedidos_criado_em_dia_idx`, 7 linhas, **19,8 ms** ocioso (igual ao pré-teste).
+- Contrato conferido antes de medir: os 7 casos de `vendas-por-dia` iguais, inclusive os 3 de erro (período invertido, 61 dias, `2024-02-30`).
+- Resposta conferida à mão: `/relatorios/vendas-por-dia?inicio=2024-01-01&fim=2024-01-03` devolve `[{"dia":"2024-01-01","pedidos":616,"itens":3703,"receita_centavos":911023510}, ...]`.
+
+#### Medição sob carga (09/11, mesma noite)
+
+- **Contrato:** mantido nas 3 execuções
+- **Antes:** experimento 08, 3 pastas de 21:57–21:59. Entre eles: Diagnóstico 04 (containers recriados duas vezes, sem `down -v`) e o pré-teste de equivalência.
+- **Depois:** commit `adf386e`, pastas:
+  - [`resultados/20261109-222257-09-vendas-agregada-no-sql`](../resultados/20261109-222257-09-vendas-agregada-no-sql/resumo.txt)
+  - [`resultados/20261109-222417-09-vendas-agregada-no-sql`](../resultados/20261109-222417-09-vendas-agregada-no-sql/resumo.txt)
+  - [`resultados/20261109-222536-09-vendas-agregada-no-sql`](../resultados/20261109-222536-09-vendas-agregada-no-sql/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 222257 | 72.44 | 106.3 ms | 899.6 ms | 1802.5 ms | 0.00% | 98.5% | 451.3 MiB | 10.2% | 26.3 MiB |
+| 222417 | 74.50 | 103.2 ms | 899.9 ms | 1796.6 ms | 0.00% | 99.5% | 459.8 MiB | 9.4% | 26.7 MiB |
+| 222536 | 73.51 | 104.8 ms | 897.5 ms | 1699.5 ms | 0.00% | 98.4% | 462.9 MiB | 9.8% | 26.8 MiB |
+| **Mediana** | **73.51** | **104.8 ms** | **899.6 ms** | **1796.6 ms** | — | **98.5%** | **459.8 MiB** | **9.8%** | **26.7 MiB** |
+
+| Métrica (mediana das 3) | 08-indice-email | 09-vendas-agregada-no-sql | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 45.40 | 73.51 | **+62%** (faixas 42,47–46,31 → 72,44–74,50) |
+| Mediana geral | 319.7 ms | 104.8 ms | **−67%** (faixas 314–394 → 103–106 ms) |
+| p95 geral | 1198.9 ms | 899.6 ms | −25% (faixas 1,19–1,21 s → 0,90 s) |
+| p99 geral | 1612.6 ms | 1796.6 ms | +11% (faixas 1,61–1,77 s e 1,70–1,80 s **se sobrepõem**: ≈ igual ou um pouco pior) |
+| API CPU média | 48.2% | 9.8% | **−80%: de 96% para ~20% da cota** |
+| API mem média | 45.5 MiB | 26.7 MiB | −18,8 MiB, e estável entre execuções (26,3–26,8; antes variava 41–58): bem menos lixo para o GC |
+| Banco CPU média | 62.9% | 98.5% | **voltou ao teto** |
+| Banco mem média | 451.4 MiB | 459.8 MiB | ≈ (máx. 498,4 MiB) |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 08 → 09 | Mediana 08 | Mediana 09 | Variação |
+| --- | --- | --- | --- | --- |
+| `pedidos-do-cliente` | 540–583 → 893–928 | 297.3 ms | 102.3 ms | −66% |
+| `top-produtos` | 44–45 → 77–80 | 193.0 ms | 94.6 ms | −51% |
+| `cliente-por-email` | 377–411 → 638–653 | 195.2 ms | 97.0 ms | −50% |
+| `cliente` | 660–710 → 1141–1162 | 181.5 ms | 94.9 ms | −48% |
+| `pedidos-por-status` | 359–391 → 634–653 | 630.9 ms | 397.7 ms | −37% |
+| `busca-produtos` | 396–428 → 649–666 | 413.3 ms | 305.8 ms | −26% |
+| `vendas-por-dia` | 202–219 → 340–344 | 969.0 ms | 803.3 ms | −17%; p95 1683.5 → 2503.7 ms (+49%), p99 ~4,5–4,7 s |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| CPU da API cai bem abaixo de 48,2% | confirmada: 9,8% |
+| `vendas-por-dia` cai para centenas de ms ou menos | **parcial**: mediana 803 ms (−17%), e a cauda piorou: a rota foi 60% mais chamada num banco de novo saturado |
+| `cliente`, `top-produtos`, `pedidos-do-cliente` voltam para perto do experimento 07 | confirmada, e ficaram melhores que no 07 (95, 95 e 102 ms contra 102, 130 e 211) |
+| req/s sobe; o banco volta a ser o limite | confirmada: +62%; banco 98,5% |
+| Tempo do banco nesta consulta muda pouco | não medido sob carga (falta ranking); ocioso: 25,3 → 19,8 ms |
+
+#### Achado: os tempos estão "quantizados" em múltiplos de ~100 ms (throttling do limite de CPU)
+
+- **Fato (`resumo.txt`):** quase todos os tempos ficaram perto de múltiplos de 100 ms: medianas 95, 97, 102, 306, 398, 803 ms; p95 194–202, 297, 593–600, 900 ms. Isso não aparece em lógica de aplicação.
+- **Fato (`diagnostico/12-vendas-sql/cgroup-cpu.txt`, lido logo depois das medições):** o container do banco tem `cpu.max = 100000 100000` (100 ms de CPU por período de 100 ms = 1 CPU). Desde o início do container, **2.291 de 4.501 períodos (51%) foram limitados (throttled)**, somando 2.621,8 s de espera. A API: 7 de 2.340. Contadores acumulados desde a criação do container (inclui aquecimentos e contratos), não só a janela medida.
+- **Fonte:** F16 (documentação do kernel Linux, CFS Bandwidth Control): dentro de cada período o grupo recebe até "quota" de CPU; "Throttled threads will not be able to run again until the next period when the quota is replenished"; período padrão de 100 ms.
+- **Hipótese:** quando o banco gasta a cota de 100 ms antes do fim do período, todas as consultas em andamento ficam paradas até o período seguinte. Uma consulta de < 1 ms que cai nesse momento espera o resto do período: daí os degraus de ~100 ms. Ou seja, abaixo de ~100 ms o que limita a latência hoje é o **limite de CPU do container**, não a consulta.
+- **Consequências para o trabalho:** (1) daqui para frente, otimizações que tiram poucos ms por consulta podem não aparecer na mediana; o que conta é reduzir a CPU total do banco (sair do throttling). (2) É um efeito do ambiente de medição (limite de 1 CPU), que também existiria num container com o mesmo limite em produção. (3) Vale para "Limites" e para o artigo: explica por que tempos sob carga não se parecem com os do `EXPLAIN`.
+
+- **Conclusão:** aplicada e medida, com ganho grande: +62% de vazão e mediana −67% (de 320 para 105 ms), sem recurso novo, com equivalência provada em 735 janelas. A API caiu de 96% para ~20% da cota e passou a usar 19 MiB a menos de memória. O gargalo voltou ao banco, que agora passa metade dos períodos limitado pela cota de CPU; `vendas-por-dia` ficou com a pior cauda (p99 ~4,6 s).
+- **Gargalo que apareceu depois:** CPU do banco: `busca-produtos` (P9) e `count(*)` (P5), que no Diagnóstico 04 já somavam 56% do banco, mais o próprio `vendas-por-dia`. Seguem as prioridades 2 e 3.
 
 ## Fontes
 
@@ -1012,6 +1075,7 @@ Por rota (mediana das medianas):
 | F13 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 41.3 Materialized Views | https://www.postgresql.org/docs/16/rules-materializedviews.html | 2026-11-09 | doc oficial | dados derivados | "persist the results in a table-like form"; "access to the data stored in a materialized view is often much faster than accessing the underlying tables directly or through a view, the data is not always current; yet sometimes current data is not needed"; exemplo de resumo de vendas: "A job could be scheduled to update the statistics each night" |
 | F14 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, REFRESH MATERIALIZED VIEW | https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html | 2026-11-09 | doc oficial | dados derivados | "completely replaces the contents of a materialized view"; `CONCURRENTLY`: "Refresh the materialized view without locking out concurrent selects"; "only allowed if there is at least one UNIQUE index on the materialized view which uses only column names and includes all rows" |
 | F15 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.10 citext | https://www.postgresql.org/docs/16/citext.html | 2026-11-09 | doc oficial | índices | "The citext module provides a case-insensitive character string type, citext. Essentially, it internally calls lower when comparing values." (F10, mesma seção 11.7 já citada, também traz: "a common way to do case-insensitive comparisons is to use the lower function", o exemplo `CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1))` e o aviso de que um índice `UNIQUE` assim "would prevent creation of rows whose col1 values differ only in case") |
+| F16 | The Linux Kernel documentation | CFS Bandwidth Control | https://docs.kernel.org/scheduler/sched-bwc.html | 2026-11-09 | doc oficial (técnica primária) | ambiente / limites de CPU | "Within each given 'period' (microseconds), a task group is allocated up to 'quota' microseconds of CPU time"; "Throttled threads will not be able to run again until the next period when the quota is replenished"; padrão `cpu.cfs_period_us=100ms`; `nr_throttled`: "Number of times the group has been throttled/limited". A página descreve a interface do cgroup v1 e remete ao `cgroup-v2.rst` para o `cpu.max` (não aberto) |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -1063,6 +1127,7 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 - `cpu_media` subestima um pouco a carga: o coletor do `medir.sh` continua amostrando por alguns segundos depois do fim da carga, e as últimas amostras de cada `recursos.csv` têm o banco quase parado (ex.: 0,05%, 6,90%). Afeta todas as medições do mesmo jeito, então as comparações continuam válidas.
 - Mensagem `date: write error: Broken pipe (os error 32)` no fim do `medir.sh`: o `date` do coletor (uutils coreutils, Ubuntu 26.04) reclama quando o laço é encerrado no meio de uma escrita. Inofensiva: conferido que nenhum `recursos.csv` tem linha malformada (68–86 amostras por execução) e o `resumo.txt` vem do k6, não do coletor.
 - **O ambiente muda entre dias:** o mesmo código (experimento 03) deu 5,63 req/s em 05/11 e 8,44 req/s em 09/11 (+50%). Causa não identificada. Só comparar medições da mesma sessão; no mesmo dia também houve deriva (pool: 10,3 req/s às 19:11 nas medições descartadas contra 9,4 às 19:41). **Plano:** rodada final no fim do trabalho, na mesma sessão, com linha de base e versão final (3 medições cada), para a tabela-resumo do artigo.
+- **Throttling do limite de CPU (CFS):** com o banco no teto, o container é limitado em ~metade dos períodos de 100 ms (experimento 09: 2.291 de 4.501; F16), e os tempos sob carga ficam em degraus de ~100 ms. Ganhos de poucos ms por consulta podem não aparecer; o que aparece é reduzir a CPU total do banco. Os contadores do `cpu.stat` são acumulados desde a criação do container, não da janela de medição.
 - O p95 geral depende da mistura de rotas: na carga de ciclo fechado, acelerar uma rota faz as outras serem mais chamadas e pode piorar a cauda (experimento 03). Comparar sempre req/s, mediana, p95 e as rotas juntos.
 
 ## Uso de IA
