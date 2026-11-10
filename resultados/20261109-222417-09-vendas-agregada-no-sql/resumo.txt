@@ -1,0 +1,17 @@
+Medição: 09-vendas-agregada-no-sql
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        4486
+Requisições/s:      74.50
+Tempo de resposta:  mediana 103.2 ms | p95 899.9 ms | p99 1796.6 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               1162      94.7 ms       194.0 ms      201.0 ms      0.0%    
+cliente-por-email     653       95.7 ms       197.9 ms      297.0 ms      0.0%    
+pedidos-do-cliente    928       101.8 ms      298.0 ms      390.8 ms      0.0%    
+pedidos-por-status    653       396.7 ms      1002.9 ms     1203.0 ms     0.0%    
+busca-produtos        666       305.8 ms      596.9 ms      703.1 ms      0.0%    
+vendas-por-dia        344       802.5 ms      2503.7 ms     4659.4 ms     0.0%    
+top-produtos          80        96.2 ms       402.1 ms      824.1 ms      0.0%    
