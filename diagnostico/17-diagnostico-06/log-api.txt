@@ -1,0 +1,9 @@
+rota                   linhas        bytes bytes/linha
+pedidos-do-cliente       2840      6470039       2278
+cliente-por-email        2049       493315        241
+busca-produtos           2101      4300982       2047
+cliente                  3451       730943        212
+vendas-por-dia           1125       750378        667
+top-produtos              253       343426       1357
+pedidos-por-status       2017      3990232       1978
+TOTAL                   13836     17079315

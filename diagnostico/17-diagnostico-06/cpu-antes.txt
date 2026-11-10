@@ -1,0 +1,10 @@
+### banco antes
+usage_usec 14403930
+nr_periods 179
+nr_throttled 114
+throttled_usec 29293541
+### api antes
+usage_usec 6201858
+nr_periods 195
+nr_throttled 66
+throttled_usec 3519061

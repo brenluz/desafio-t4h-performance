@@ -1,0 +1,10 @@
+### banco depois
+usage_usec 74788290
+nr_periods 786
+nr_throttled 717
+throttled_usec 695275738
+### api depois
+usage_usec 21683046
+nr_periods 815
+nr_throttled 82
+throttled_usec 3921959

@@ -1,0 +1,38 @@
+### uso dos indices (idx_scan desde o pg_stat_reset, logo antes da carga)
+         tabela          |                indice                | idx_scan | idx_tup_read | tamanho 
+-------------------------+--------------------------------------+----------+--------------+---------
+ itens_pedido            | itens_pedido_pedido_id_idx           |  4862542 |     14559870 | 21 MB
+ pedidos                 | pedidos_pkey                         |    61868 |        61868 | 11 MB
+ produtos                | produtos_pkey                        |    56330 |        56330 | 456 kB
+ clientes                | clientes_pkey                        |     6302 |         6302 | 2208 kB
+ pedidos                 | pedidos_cliente_id_idx               |     2835 |        14175 | 5720 kB
+ produtos                | produtos_nome_trgm_idx               |     2102 |      2990871 | 1144 kB
+ clientes                | clientes_lower_email_idx             |     2053 |         2053 | 4792 kB
+ pedidos                 | pedidos_status_criado_em_id_idx      |     2011 |     20345620 | 21 MB
+ pedidos                 | pedidos_criado_em_dia_idx            |     1169 |      5400775 | 3552 kB
+ resumo_vendas_produto   | resumo_vendas_produto_produto_id_idx |      502 |          502 | 440 kB
+ resumo_vendas_produto   | resumo_vendas_produto_receita_idx    |      251 |         2510 | 608 kB
+ contagem_pedidos_status | contagem_pedidos_status_status_idx   |        0 |            0 | 16 kB
+ itens_pedido            | itens_pedido_pkey                    |        0 |            0 | 32 MB
+(13 rows)
+
+### varreduras sequenciais e por indice, por tabela
+         tabela          | seq_scan | seq_tup_read | idx_scan | n_live_tup 
+-------------------------+----------+--------------+----------+------------
+ itens_pedido            |        6 |      9000000 |  4862542 |          0
+ contagem_pedidos_status |     2016 |         8064 |        0 |          0
+ clientes                |        0 |            0 |     8355 |          0
+ produtos                |        0 |            0 |    58432 |          0
+ pedidos                 |        0 |            0 |    67883 |          0
+ resumo_vendas_produto   |        0 |            0 |      753 |          0
+(6 rows)
+
+### acerto de cache do banco durante a carga
+ blks_hit | blks_read | pct_acerto | temp_files | temp_bytes | xact_commit | xact_rollback 
+----------+-----------+------------+------------+------------+-------------+---------------
+ 20423153 |   1229916 |      94.32 |          0 |          0 |       18734 |             0
+(1 row)
+
+### conexoes
+active 1
+idle 20
