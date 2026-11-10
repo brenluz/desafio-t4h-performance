@@ -44,7 +44,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Primeiras medições do 04 descartadas (arquivos sem commit e dias diferentes); experimento 03 remedido e 04 medido na mesma sessão: +11,7% req/s, mediana −62% | `4cb8796`, pastas de 09/11 |
 | 2026-11-09 | Pré-teste dos índices para `vendas-por-dia` (com `ROLLBACK`); hipótese do experimento 05 escrita antes da mudança | `c22f6d3`, `194f9e4` |
 | 2026-11-09 | Experimento 05: índice de expressão, medido 3 vezes na mesma sessão do 04; +18,7% req/s, p95 −35%, p99 +47% | `7114534`, `047abf3`, `aea7616` |
-| 2026-11-09 | Diagnóstico 03 (`pg_stat_statements` + EXPLAINs quentes): página de `/pedidos` = 46,7% do banco; prioridades revistas, P4b antes de `top-produtos` | `diagnostico/07-ranking-apos-05/` |
+| 2026-11-09 | Diagnóstico 03 (`pg_stat_statements` + EXPLAINs quentes): página de `/pedidos` = 46,7% do banco; prioridades revistas, P4b antes de `top-produtos` | `ac441de`, `d06ebb9` |
+| 2026-11-09 | Pré-teste do P4b: blocos temporários explicados (plano vira `Seq Scan`+Sort para `cancelado`/`pagina=15000`); reescrita "late row lookup" validada ociosa; hipótese do experimento 06 escrita antes da mudança | `diagnostico/08-pedidos-offset/`, este diário |
 
 ## Ambiente
 
@@ -87,7 +88,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
-| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada — virou o maior consumidor do banco (Diagnóstico 03: 46,7%); P4b planejado |
+| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); experimento 06 planejado |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | na prática resolvido: com o mapa de visibilidade preenchido, o `Index Only Scan` caiu para 42 ms quente e 2,5% do banco (Diagnóstico 03) |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); prioridade 2, tabela derivada |
@@ -153,7 +154,7 @@ Leitura (fatos do `ranking.txt` e `consultas-ociosas.txt`; hipóteses marcadas):
 - **Fato:** `top-produtos` ocioso caiu de 3.482 ms (Diagnóstico 00) para 2.053 ms: o planejador agora usa `Index Only Scan` no índice do experimento 02 para o filtro de status. O custo restante é ler os 1,5 milhão de `itens_pedido` (Seq Scan, ~9.500 páginas) a cada chamada: nenhum índice evita isso; só dado derivado ou cache.
 - **Fato:** em `vendas-por-dia`, o que sobrou é o laço de itens (~15.500 páginas por chamada buscando ~13 mil itens pedido a pedido) e o transporte de ~12.900 linhas com `observacoes` para somar no Node.
 - **Fato:** `clientes?email=` segue com Seq Scan de 100 mil linhas a cada chamada (P8, nunca atacado): 6,3% do banco pela rota de 15% de peso.
-- **Fato não explicado:** a consulta de página registrou 10.743 blocos temporários escritos no total. Com `Index Scan` puro não deveria haver spill; não investigado (pode ser plano diferente em alguma combinação de parâmetros).
+- **Fato não explicado (resolvido no pré-teste do experimento 06,** [`diagnostico/08-pedidos-offset/pre-teste.txt`](../diagnostico/08-pedidos-offset/pre-teste.txt)**):** a consulta de página registrou 10.743 blocos temporários escritos. A suposição "Index Scan puro" valia só para os status grandes: para `cancelado` (50 mil linhas) com offset alto, o planejador acha mais barato trocar o índice por `Seq Scan` paralelo + ordenação externa em disco (`external merge`, ~5 MB por worker, 618,9 ms ocioso), porque buscar 20 mil linhas inteiras pelo índice sai caro demais. O caso do contrato `pagina=15000` em `pago` (OFFSET 299.980) também ordena 300 mil linhas em disco (~30 MB por worker, 992,9 ms). O contador global confirmou: a série do pré-teste criou 6 arquivos temporários (~110 MB) no banco.
 - As três primeiras consultas somam **87,7%** do tempo do banco.
 
 ### Prioridades revistas (antes de escolher o próximo experimento)
@@ -638,7 +639,45 @@ Por rota (mediana das medianas; chamadas por execução):
 **Por que a cauda de `pedidos-por-status` e o p99 pioraram (hipótese):** a mediana dessa rota não mudou (~1,3 s), mas o p95 dobrou: uma parte das chamadas fica muito lenta (23–36 s de p95). Com a CPU liberada por `vendas-por-dia`, a vazão subiu e `pedidos-por-status` foi mais chamada (+16%), disputando o banco com `top-produtos` (agregação de 1,5 milhão de linhas, ~29 s). As chamadas lentas devem ser as de `count(*)` em `pago` (300 mil entradas) e as de página alta, quando coincidem com um `top-produtos` em andamento. Não verificado: precisaria de um ranking novo (`pg_stat_statements`) ou dos tempos por status/página.
 
 - **Conclusão:** aplicada e medida, com ganho. +18,7% de vazão e p95 geral −35%, por um índice de 3,5 MB, sem mudar código nem resposta. `vendas-por-dia` caiu 71%, mas não sumiu da fila. Em troca, o gargalo ficou ainda mais concentrado: `top-produtos` e a cauda de `pedidos-por-status` agora decidem o p99.
-- **Gargalo que apareceu depois:** `top-produtos` (P7, ~29 s de mediana) e o `count(*)` de `pedidos-por-status` (P5). Agregar `vendas-por-dia` no SQL (alternativa C) fica como candidato menor.
+- **Gargalo que apareceu depois:** `top-produtos` (P7, ~29 s de mediana) e o `count(*)` de `pedidos-por-status` (P5). Agregar `vendas-por-dia` no SQL (alternativa C) fica como candidato menor. **Corrigido pelo Diagnóstico 03:** a cauda não era o `count(*)`, era a própria consulta de página.
+
+### 06-pedidos-late-lookup
+
+- **Status:** planejado (hipótese escrita antes da mudança)
+- **Problema:** P4b (página de `/pedidos`): 46,7% do tempo do banco no Diagnóstico 03, o maior consumidor isolado. Escolhido pelas prioridades revistas, na frente de `top-produtos` (21,3%).
+- **Situação atual (fatos, `diagnostico/07-ranking-apos-05/` e `diagnostico/08-pedidos-offset/pre-teste.txt`):**
+  - O `SELECT *` com `OFFSET` busca da tabela as até 20.000 linhas inteiras (~299 bytes, com `observacoes`) que vai descartar: ~10.100 páginas (~79 MB) por chamada na média sob carga.
+  - Para `cancelado` e nos offsets além do fim (`pagina=15000`), o planejador troca para `Seq Scan` + ordenação em disco (origem dos blocos temporários do Diagnóstico 03).
+  - Piores casos ociosos hoje: `entregue`@19980 = 444 ms; `cancelado`@19980 = 619 ms (com disco); `pago`@299980 = 993 ms (com disco).
+- **Hipótese:** reescrever a consulta como "late row lookup" — uma subconsulta pega só os 20 `id` via `Index Only Scan` no índice `(status, criado_em DESC, id DESC)` e um `JOIN` busca as 20 linhas inteiras pela chave primária — deve cortar a cauda de `pedidos-por-status` (p95 da rota) e o p99 geral, e aumentar as req/s, porque as linhas puladas deixam de ir à tabela (ficam só no índice, `Heap Fetches: 0`) e o planejador para de recorrer à ordenação em disco.
+- **Pré-teste (fato, mesmo arquivo; consultas com valores literais, banco ocioso):**
+
+| Caso | Atual | Reescrita |
+| --- | --- | --- |
+| `pago` OFFSET 0 | 3,8 ms | 19,6 ms |
+| `pago` OFFSET 19980 | 131,4 ms | 46,3 ms |
+| `pendente` OFFSET 19980 | 229,6 ms (Sort em memória) | 22,3 ms |
+| `pago` OFFSET 299980 (caso do contrato `pagina=15000`) | 992,9 ms (`external merge` ~30 MB/worker) | 73,3 ms |
+
+  A reescrita percorre as 300 mil entradas do índice em 48,8 ms sem tocar a tabela (`Heap Fetches: 0`) e ordena só as 20 linhas finais (quicksort de 31 kB). Não testada ociosa para `cancelado`/`entregue`: colher no `EXPLAIN` depois da mudança. O caso `OFFSET 0` piora uns 16 ms (duas idas ao índice em vez de uma); irrelevante perto do ganho na cauda.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN` da reescrita em todos os status: `Index Only Scan` com `Heap Fetches: 0` + `Index Scan using pedidos_pkey`, sem `external merge`.
+  - p95 da rota `pedidos-por-status` (hoje 23–36 s sob carga) cai forte; p99 geral (30,2 s) cai; req/s sobe acima da deriva de ~10% do mesmo dia.
+  - Blocos temporários da consulta somem (conferir num ranking futuro).
+  - Pelo ciclo fechado, os relatórios são mais chamados; `top-produtos` pode piorar e segue como próximo alvo.
+  - Banco continua saturado (~97–100%).
+- **O que derrubaria a hipótese:** plano sem `Index Only Scan` (ex.: mapa de visibilidade vazio logo após recriar o banco), ou cauda da rota e req/s sem mudança além da variação.
+- **Fonte da ideia:** F11 (Winand: o banco precisa buscar e ordenar as linhas que o `OFFSET` vai pular — "big offsets impose a lot of work on the database"); F12 (PostgreSQL 7.6: "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient"). O "late row lookup" aplica a ideia mantendo a API: as linhas puladas são computadas só no índice, nunca na tabela.
+- **Por que esta e não outra:** ver [Alternativas](#alternativas). Keyset/seek (recomendação principal do F11) é impossível aqui sem quebrar o contrato: a API expõe `pagina` numérica de acesso aleatório.
+- **Cuidados de contrato:** `ORDER BY` repetido na consulta externa (o `JOIN` não garante ordem); a ordem `(criado_em DESC, id DESC)` é total (desempate por `id`), então as 20 linhas e a ordem são idênticas; página além do fim devolve `[]` como hoje (subconsulta vazia → join vazio; conferido no pré-teste do caso 299980, 0 linhas... conferir na prática pelo contrato); `count(*)` e o resto da rota não mudam.
+- **Mudança:** `api/src/rotas.js`, consulta de página de `/pedidos` — commit `<preencher>`
+- **Custo esperado:** nenhum recurso novo; `OFFSET 0` ~16 ms mais lento ocioso (duas leituras de índice).
+- **Evidência a salvar:** `diagnostico/08-pedidos-offset/` com `EXPLAIN (ANALYZE, BUFFERS)` da consulta nova nos 4 status (offset 19980) e no caso 299980
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 05 (pastas de 09/11 20:17–20:31 em [05-indice-vendas-por-dia](#05-indice-vendas-por-dia)), **se medido ainda nesta sessão**; senão, remedir o 05 antes
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
 
 ## Fontes
 
@@ -653,6 +692,8 @@ Por rota (mediana das medianas; chamadas por execução):
 | F8 | node-postgres (Brian Carlson) | Pooling (#why) e API do Pool (#new-pool, #error) | https://node-postgres.com/features/pooling e https://node-postgres.com/apis/pool | 2026-11-05 | técnica primária (doc da biblioteca usada) | conexões | "Connecting a new client to the PostgreSQL server requires a handshake which can take 20-30 milliseconds"; "Incurring this cost every time we want to execute a query would substantially slow down our application"; `max` "By default this is set to 10"; `idleTimeoutMillis` padrão 10000; sem ouvinte de `error`, o Node "will emit an uncaught error and potentially crash your node process" |
 | F9 | Brett Wooldridge (HikariCP) | About Pool Sizing (wiki) | https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing | 2026-11-05 | técnica / caso de mercado (cita o projeto PostgreSQL e um vídeo da Oracle) | conexões | Fórmula atribuída ao projeto PostgreSQL: conexões ativas "somewhere near ((core_count * 2) + effective_spindle_count)"; "You want a small pool [...] and you want the rest of the application threads blocked on the pool"; exemplo da Oracle: reduzir só o pool levou a resposta "from ~100ms to ~2ms" |
 | F10 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.7 Indexes on Expressions | https://www.postgresql.org/docs/16/indexes-expressional.html | 2026-11-09 | doc oficial | índices | "An index column need not be just a column of the underlying table, but can be a function or scalar expression computed from one or more columns of the table"; "Index expressions are relatively expensive to maintain [...] However, the index expressions are not recomputed during an indexed search"; "useful when retrieval speed is more important than insertion and update speed" |
+| F11 | Markus Winand | We need tool support for keyset pagination (use-the-index-luke.com, 2014, atualizado 2023) | https://use-the-index-luke.com/no-offset | 2026-11-09 | técnica primária (autor de referência em SQL/índices) | paginação | "Offset instructs the DBMS skip the first N results of a query. However, the database must still fetch these rows from the disk and bring them in order"; "big offsets impose a lot of work on the database"; recomenda o método "seek"/keyset ("even faster than offset" — afirmação sem números na página) |
+| F12 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 7.6 LIMIT and OFFSET | https://www.postgresql.org/docs/16/queries-limit.html | 2026-11-09 | doc oficial | paginação | "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -666,6 +707,10 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P4b página de `/pedidos` | "Late row lookup": subconsulta pega 20 `id` via `Index Only Scan`, `JOIN` busca as linhas inteiras | nenhum recurso novo | piores casos ociosos 131–993 ms → 22–73 ms (pré-teste) | baixo: mesma ordem total `(criado_em, id)`; `ORDER BY` repetido fora | baixo (SQL de uma rota) | **escolhida** (experimento 06) |
+| P4b página de `/pedidos` | Keyset/seek pagination (F11) | nenhum | melhor possível (nunca percorre as puladas) | **quebra o contrato**: a API expõe `pagina` numérica de acesso aleatório | — | descartada: impossível sem mudar a API |
+| P4b página de `/pedidos` | Índice cobrindo todas as colunas (`INCLUDE`) | ~duplica a tabela em disco | evita ir à tabela, mas ainda carrega linhas de ~299 bytes pelo índice | baixo | baixo | descartada: custo de espaço alto, ganho menor que o late lookup |
+| P4b página de `/pedidos` | `work_mem` maior (ex.: 16 MB) no `command` do banco | memória (×100 conexões possíveis) | só elimina o spill de `cancelado`/`pagina=15000`; as 20 mil idas à tabela continuam | médio (memória sob carga) | trivial | descartada como solução; candidata a teste futuro de configuração |
 | P6 vendas-por-dia | A: índice de expressão `((criado_em::date))` | índice novo (disco/memória) | 840 → 34 ms ocioso (pré-teste) | quase nulo: consulta igual | baixo (um `.sql`) | **escolhida** (experimento 05) |
 | P6 vendas-por-dia | B: reescrever o filtro como intervalo + índice em `criado_em` | índice novo | 840 → 18 ms ocioso (equivalente a A) | baixo, mas muda a rota | baixo/médio | descartada por ora: mesmo ganho, mais uma variável (código) |
 | P6 vendas-por-dia | C: agregar no SQL (`GROUP BY` por dia) | nenhum | menos linhas e menos CPU na API; não resolve o scan sozinho | médio: formato do dia, `bigint` → `Number` | médio | depois, como experimento separado |
@@ -712,3 +757,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste de `vendas-por-dia` (índices candidatos em transação com `ROLLBACK`), abriu F10, redigiu a hipótese do experimento 05 e a tabela de alternativas do P6 | Saída bruta em `diagnostico/06-vendas-por-dia/pre-teste.txt`, com a lista de índices no fim provando que nada ficou no banco |
 | 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 05, calculou medianas e variações (incluindo p99 e p95 por rota) e escreveu a análise | Números copiados de `explain-depois.txt`, `tamanho-indices.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
 | 2026-11-09 | Claude Code | Escreveu e rodou o `coletar.sh` do Diagnóstico 03, analisou o ranking e os EXPLAINs quentes, revisou a hipótese da cauda do experimento 05 e propôs as prioridades (P4b antes de `top-produtos`) | Saídas brutas em `diagnostico/07-ranking-apos-05/`; conferir números contra `ranking.txt` e `consultas-ociosas.txt` |
+| 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste do P4b (investigou os blocos temporários e comparou a reescrita), abriu F11 e F12 e redigiu a hipótese do experimento 06 com o SQL sugerido | Saída bruta em `diagnostico/08-pedidos-offset/pre-teste.txt`; conferir citações nos links; código validado pelo verificador de contrato |
