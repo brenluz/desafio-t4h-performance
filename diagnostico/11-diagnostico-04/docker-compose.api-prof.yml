@@ -1,0 +1,5 @@
+# Usado só pelo coletar.sh do Diagnóstico 04: roda a API com o profiler de amostragem do V8 (node --prof).
+# O log de amostras vai para /tmp/v8.log dentro do container e é processado com node --prof-process.
+services:
+  api:
+    command: ["node", "--prof", "--logfile=/tmp/v8.log", "--no-logfile-per-isolate", "src/server.js"]

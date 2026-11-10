@@ -1,0 +1,13 @@
+ calls | total_ms | pct_tempo | media_ms |  rows   |                                                         consulta                                                         
+-------+----------+-----------+----------+---------+--------------------------------------------------------------------------------------------------------------------------
+   188 |    43658 |      39.3 |    232.2 | 2430485 | SELECT p.id AS pedido_id, p.criado_em, p.observacoes, i.quantidade, i.preco_unitario_centavos FROM pedidos p JOIN itens_
+   384 |    32612 |      29.3 |     84.9 |    7680 | SELECT * FROM produtos WHERE nome ILIKE $2 || $1 || $3 ORDER BY nome, id LIMIT $4
+   346 |    30055 |      27.0 |     86.9 |     346 | SELECT count(*) AS total FROM pedidos WHERE status = $1
+   519 |     2392 |       2.2 |      4.6 |    7725 | SELECT p.id, p.status, p.criado_em, i.produto_id, pr.nome AS produto_nome, i.quantidade, i.preco_unitario_centavos FROM 
+   346 |     1642 |       1.5 |      4.7 |    6920 | SELECT p.* FROM (SELECT id FROM pedidos WHERE status = $1 ORDER BY criado_em DESC, id DESC LIMIT $2 OFFSET $3) s JOIN pe
+   361 |      558 |       0.5 |      1.5 |     361 | SELECT * FROM clientes WHERE lower(email) = lower($1) ORDER BY id
+  1163 |      293 |       0.3 |      0.3 |    1163 | SELECT * FROM clientes WHERE id = $1
+    44 |       20 |       0.0 |      0.5 |     440 | SELECT pr.id, pr.nome, pr.categoria, r.unidades, r.receita_centavos FROM resumo_vendas_produto r JOIN produtos pr ON pr.
+     1 |        0 |       0.0 |      0.2 |       1 | SELECT pg_stat_statements_reset()
+(9 rows)
+
