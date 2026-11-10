@@ -205,16 +205,12 @@ rotas.get('/relatorios/top-produtos', assincrono(async (req, res) => {
   const limite = req.query.limite === undefined ? 10 : inteiroPositivo(req.query.limite);
   if (limite === null || limite > 50) return res.status(400).json({ erro: 'limite deve ser um inteiro entre 1 e 50' });
 
+  // O resumo por produto vem pré-calculado da visão materializada (banco/06-resumo-vendas-produto.sql).
   const linhas = await consultar(
-    `SELECT pr.id, pr.nome, pr.categoria,
-            sum(i.quantidade) AS unidades,
-            sum(i.quantidade * i.preco_unitario_centavos) AS receita_centavos
-       FROM itens_pedido i
-       JOIN pedidos p ON p.id = i.pedido_id
-       JOIN produtos pr ON pr.id = i.produto_id
-      WHERE p.status <> 'cancelado'
-      GROUP BY pr.id, pr.nome, pr.categoria
-      ORDER BY receita_centavos DESC, pr.id
+    `SELECT pr.id, pr.nome, pr.categoria, r.unidades, r.receita_centavos
+       FROM resumo_vendas_produto r
+       JOIN produtos pr ON pr.id = r.produto_id
+      ORDER BY r.receita_centavos DESC, r.produto_id
       LIMIT $1`,
     [limite],
   );
