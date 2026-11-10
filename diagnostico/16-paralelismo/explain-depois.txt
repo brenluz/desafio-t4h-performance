@@ -1,0 +1,40 @@
+ max_parallel_workers_per_gather 
+---------------------------------
+ 0
+(1 row)
+
+##### vendas-por-dia depois da mudanca (cache quente)
+ count 
+-------
+ 14356
+(1 row)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=27.642..29.088 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   Buffers: shared hit=17395 read=911
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=27.291..27.767 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         Buffers: shared hit=17395 read=911
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.439..22.900 rows=12922 loops=1)
+               Buffers: shared hit=17389 read=911
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.415..1.976 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     Buffers: shared hit=1000
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.305..0.305 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Buffers: shared hit=7
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.004..0.004 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+                     Buffers: shared hit=16389 read=911
+ Planning:
+   Buffers: shared hit=36
+ Planning Time: 0.306 ms
+ Execution Time: 29.270 ms
+(25 rows)
+
