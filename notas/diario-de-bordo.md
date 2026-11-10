@@ -58,6 +58,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 10 (feito pelo Claude Code a pedido): índice `pg_trgm`; +24% req/s, busca −67%; banco segue no teto | `0520020`, `668745f`, `d1f3c8f` |
 | 2026-11-09 | Pré-teste da contagem por status pré-calculada (equivalência inclusive para status sem pedidos, `ROLLBACK`); hipótese do experimento 11 escrita antes da mudança | `7f38a53`, `3006ca4` |
 | 2026-11-09 | Experimento 11 (feito pelo Claude Code a pedido): contagem por status pré-calculada; +53% req/s, p99 −33%; só `vendas-por-dia` segue lenta | `5054472`, `32bfba2`, `d4bfdf4` |
+| 2026-11-09 | Diagnóstico 05 (feito pelo Claude Code a pedido): `vendas-por-dia` = 85% do banco; throttling em 98,5% dos períodos na janela da carga; problema novo P13 (consultas paralelas num banco de 1 CPU); memória "no limite" era cache de arquivos | `diagnostico/15-diagnostico-05/` |
 
 ## Ambiente
 
@@ -225,6 +226,53 @@ Soma do `total_exec_time`: ~111 s em 60 s (≈ 1,9 consultas em andamento em mé
 | 4 | P12: log com corpo inteiro | 3 MB/min; não aparece no perfil | reduzir o que vai para o log | pequeno; e muda comportamento observável (log), não o contrato |
 
 **Decisão (Diagnóstico 04):** próximo experimento é P6c. É o único que alivia a API (o teto atual) e o maior consumidor do banco ao mesmo tempo.
+
+## Diagnóstico 05: o que sobrou depois do experimento 11
+
+Contexto: 6 de 7 rotas no degrau de ~100 ms; `vendas-por-dia` com mediana ~700 ms e p95 > 1 s; banco no teto de CPU; `docker stats` mostrando memória do banco até 496,6 MiB de 512. Feito pelo Claude Code a pedido do Breno ("rodar um novo diagnóstico para ver se acha problemas novos").
+
+Evidência: [`diagnostico/15-diagnostico-05/`](../diagnostico/15-diagnostico-05/). Mesmo método do Diagnóstico 04 (`pg_stat_statements` + `node --prof` com os composes à parte), com duas melhorias de método: (1) os contadores de throttling são lidos **antes e depois** da carga, para medir só a janela de 60 s (antes eram acumulados desde a criação do container); (2) a memória do banco é decomposta pelo `memory.stat` do cgroup. Código: experimentos 01–11. Carga da coleta: 146,69 req/s (dentro do esperado para o experimento 11 com as ferramentas ligadas). Tudo devolvido ao normal no fim (API rodando `node src/server.js`).
+
+### Banco (`ranking.txt`)
+
+| Consulta (rota) | % do tempo | Chamadas | Média sob carga | Leituras de buffer |
+| --- | --- | --- | --- | --- |
+| `vendas-por-dia` (agregada, experimento 09) | **85,2%** | 718 | 594,9 ms | 12,4 mi (~17 mil por chamada) |
+| página de `/pedidos` (late lookup) | 6,5% | 1.277 | 25,4 ms | 128 mil |
+| `busca-produtos` (`pg_trgm`) | 6,0% | 1.337 | 22,6 ms | 210 mil |
+| `pedidos-do-cliente` | 1,3% | 1.847 | 3,6 ms | 123 mil |
+| `clientes/:id`, e-mail, contagem, `top-produtos` | ≤ 0,5% cada | | ≤ 1,6 ms | |
+
+- **Fato:** `vendas-por-dia` é praticamente todo o trabalho que resta no banco. Com o cache quente e o banco ocioso, ela leva **20,4 ms** (`explain-vendas.txt`), contra < 1 ms das outras; sob carga, 595 ms de média por esperar a cota de CPU.
+- **Fato (`explain-vendas.txt`):** o plano usa `Gather Merge` com **2 processos paralelos** (`Workers Launched: 2`) num container limitado a **1 CPU**.
+- **Hipótese (problema novo, P13):** paralelismo de consulta num container de 1 CPU não ganha CPU extra (os 3 processos dividem a mesma cota) e paga o custo de coordenar os workers. O padrão `max_parallel_workers_per_gather = 2` (Diagnóstico 00) foi pensado para máquinas com vários núcleos. Testável pela configuração (`-c max_parallel_workers_per_gather=0` no `command` do banco), sem mudar código.
+
+### Throttling só durante a carga (`cpu-antes.txt`, `cpu-depois.txt`)
+
+- **Banco:** 613 períodos de 100 ms na janela, **604 limitados (98,5%)**; 60,5 s de CPU usados em ~61 s: o banco usa a cota inteira o tempo todo.
+- **API:** 620 períodos, 3 limitados (0,5%).
+- **Leitura:** confirma, agora medido na janela certa, o achado do experimento 09: o limite de 1 CPU do banco é o teto de tudo, e os degraus de ~100 ms vêm dele.
+
+### Memória do banco (`memoria-banco.txt`, `memoria-banco-recriado.txt`)
+
+- **Fato (container recriado só a partir do volume, sem gerar dados, logo após a carga):** `memory.current` 232,6 MiB, pico 270,5 MiB; `anon` (memória dos processos) 46,2 MiB; `shmem` 145,4 MiB (o `shared_buffers` de 128 MB fica em memória compartilhada); `file` 171,8 MiB.
+- **Fato (container recriado com `down -v`, que gera os dados):** depois da criação, `memory.current` 398,6 MiB, dos quais **`file` 376,4 MiB (cache de arquivos escritos na geração)** e `anon` só 4,7 MiB; `memory.peak` = **512 MiB exatos** (o limite foi tocado durante a geração e o kernel recuperou cache, sem matar o processo). No mesmo momento o `docker stats` mostrava 259,5 MiB (ele desconta o cache inativo).
+- **Correção do que foi registrado nos experimentos 07 e 11:** a memória "perto do limite" que o `docker stats` mostrava era principalmente **cache de arquivos**, que o kernel libera sob pressão, não memória dos processos. A memória que não pode ser liberada (processos + `shared_buffers`) fica em ~190 MiB de 512. **Risco de o container ser morto por memória: baixo** com a configuração atual. Continua valendo que aumentar `shared_buffers` ou `work_mem` comeria essa folga.
+
+### API (`perfil-api.txt`, `log-api.txt`)
+
+- **Fato:** coleta de lixo caiu de 23,9% das amostras (Diagnóstico 04) para **3,5%**: efeito do experimento 09.
+- **Fato:** entre as funções que mais chamam código nativo, a primeira agora é `writeOrBuffer` de `node:internal/streams/writable` (38,1%), seguida de `Socket._writeGeneric` (10,1%): escrita em streams (resposta HTTP e saída padrão). A API escreveu **10,97 MB de log em 60 s** (8.857 linhas).
+- **Hipótese:** parte relevante da CPU da API agora é escrever log (o corpo inteiro de cada resposta, P12). Mas a API usa só ~15% de CPU e quase não sofre throttling: **não é gargalo**. Prioridade baixa.
+
+### Problemas e prioridades depois do Diagnóstico 05
+
+| Prioridade | Problema | Evidência | Ideia |
+| --- | --- | --- | --- |
+| 1 | `vendas-por-dia` = 85% do banco | ranking | resumo por dia pré-calculado (experimento 12 proposto) |
+| 2 | **P13 (novo):** consultas paralelas num banco de 1 CPU | plano com 2 workers; 98,5% dos períodos com throttling | testar `max_parallel_workers_per_gather = 0` |
+| 3 | P12: log com corpo inteiro | 11 MB/min; escrita em stream no topo do perfil | só se a API voltar a ser gargalo |
+| — | Memória do banco | decomposição do cgroup | **não é problema** (era cache de arquivos); registrado como correção |
 
 ## Experimentos
 
@@ -1218,7 +1266,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 **Leitura:** o ganho (+53%) foi maior que o do experimento 10 (+24%), coerente com o Diagnóstico 04 (contagem e busca com peso parecido, ~27–29% do banco cada, mas a contagem por chamada era mais cara: 65 ms contra ~10 ms ociosos). Agora 6 das 7 rotas estão no degrau mínimo de ~100 ms do throttling; o que sobra no banco é quase só `vendas-por-dia`.
 
-**Risco que voltou:** memória do banco com máximo de 496,6 MiB num limite de 512 MiB (registrado também no experimento 07). Não investigado.
+**Risco que voltou:** memória do banco com máximo de 496,6 MiB num limite de 512 MiB (registrado também no experimento 07). **Investigado no Diagnóstico 05: era principalmente cache de arquivos, não memória dos processos; risco baixo.**
 
 - **Conclusão:** aplicada e medida, com ganho grande: +53% de vazão, p99 −33%, a rota −74%, por uma visão de 48 kB, com equivalência provada (inclusive para status sem pedidos). Mesma ressalva de dados estáticos do experimento 07.
 - **Gargalo que apareceu depois:** só `vendas-por-dia` (~700 ms; agrega ~13 mil itens por chamada, 661–681 chamadas por execução). Candidato: resumo por dia pré-calculado (a contagem de pedidos distintos por dia é somável entre dias, porque cada pedido pertence a um só dia).
@@ -1332,3 +1380,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 09**: script de equivalência byte a byte do JSON em 735 janelas, hipótese, mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/12-vendas-sql/`; equivalência também conferida pelo verificador de contrato |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 10** (`pg_trgm`): pré-teste parametrizado com prova de equivalência, hipótese, alternativas, `.sql`, evidência, contrato, medições e commits; abriu F17 | Saídas brutas em `diagnostico/13-busca-trgm/`; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 11** (contagem por status): pré-teste com equivalência, hipótese, alternativas, `.sql` + mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/14-contagem-status/`; números conferíveis nos arquivos |
+| 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 05**: throttling medido só na janela da carga, decomposição da memória do banco (incluindo um teste recriando o banco), ranking, perfil da API; corrigiu a leitura de "risco de memória" dos experimentos 07 e 11 e propôs P13 | Saídas brutas em `diagnostico/15-diagnostico-05/` |
