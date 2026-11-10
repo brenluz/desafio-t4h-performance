@@ -54,6 +54,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `bd0a058`, `a527d2e` |
 | 2026-11-09 | Pré-teste de equivalência da agregação no SQL (735 janelas, 0 diferenças); hipótese do experimento 09 escrita antes da mudança | `a682db8`, `9b928a0` |
 | 2026-11-09 | Experimento 09 (feito pelo Claude Code a pedido): agregação no SQL; +62% req/s, mediana −67%, API de 96% para ~20% da cota; banco de volta ao teto; achado do throttling de CPU (51% dos períodos) | `3da8e3e`, `adf386e`, `c9835b3`, `d4f8c22` |
+| 2026-11-09 | Pré-teste do índice de trigramas para a busca (consultas parametrizadas, equivalência, `ROLLBACK`); hipótese do experimento 10 escrita antes da mudança | `diagnostico/13-busca-trgm/`, este diário |
 
 ## Ambiente
 
@@ -1057,6 +1058,34 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Conclusão:** aplicada e medida, com ganho grande: +62% de vazão e mediana −67% (de 320 para 105 ms), sem recurso novo, com equivalência provada em 735 janelas. A API caiu de 96% para ~20% da cota e passou a usar 19 MiB a menos de memória. O gargalo voltou ao banco, que agora passa metade dos períodos limitado pela cota de CPU; `vendas-por-dia` ficou com a pior cauda (p99 ~4,6 s).
 - **Gargalo que apareceu depois:** CPU do banco: `busca-produtos` (P9) e `count(*)` (P5), que no Diagnóstico 04 já somavam 56% do banco, mais o próprio `vendas-por-dia`. Seguem as prioridades 2 e 3.
 
+### 10-busca-trigramas
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Problema:** P9 (`/produtos/busca`): `nome ILIKE '%' || termo || '%'` com `%` no começo; nenhum B-tree serve, então é `Seq Scan` nos 20 mil produtos a cada chamada, com comparação sem diferenciar maiúsculas linha a linha. Diagnóstico 04: 29,3% do tempo do banco; experimento 09: rota com mediana ~306 ms, 649–666 chamadas por execução, num banco de volta ao teto. Prioridade 2 do Diagnóstico 04.
+- **Pré-teste (fato, `diagnostico/13-busca-trgm/pre-teste.txt`; extensão e índice dentro de transação com `ROLLBACK`, conferido que nada ficou):**
+  - Feito com `PREPARE`/`EXECUTE` e `plan_cache_mode = force_custom_plan`, com o mesmo `'%' || $1 || '%'` da rota, para reproduzir o planejamento das consultas sem nome da API (cada chamada é planejada com o valor real).
+  - Os 12 termos da carga casam com 1.000 a 2.000 produtos cada (antes do `LIMIT 20`).
+  - **Hoje:** `Seq Scan` + ordenação top-N, **9,6–10,6 ms** por termo (inclusive para `inexistente`, que não casa com nada).
+  - **Com o índice GIN `pg_trgm`:** `Bitmap Index Scan on produtos_nome_trgm_idx`, **0,95–1,95 ms** por termo; `inexistente` **0,03 ms**.
+  - **Equivalência:** os 20 primeiros resultados de cada um dos 14 termos (260 linhas), com o índice e com o índice desligado (`enable_bitmapscan`/`enable_indexscan = off`), comparados com `EXCEPT ALL` incluindo a posição: **0 diferenças**.
+  - Índice: **1.144 kB**.
+- **Hipótese:** um índice GIN de trigramas em `produtos.nome` deve reduzir a CPU que o banco gasta em `busca-produtos` (~5–10× menos por chamada no ocioso) e, como o banco está no teto e em throttling em ~metade dos períodos, aumentar as req/s e baixar a mediana das rotas baratas, porque a busca deixa de comparar os 20 mil nomes a cada chamada e passa a visitar só os ~1.000–2.000 candidatos que o índice aponta.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN` da rota: `Bitmap Index Scan on produtos_nome_trgm_idx` em todos os termos da carga.
+  - `busca-produtos` cai de ~306 ms para perto do degrau de ~100 ms das rotas baratas.
+  - CPU do banco cai abaixo de 98,5% (menos throttling); req/s sobe.
+  - Ganho total **menor** que o do experimento 09: o custo ocioso por chamada era ~10 ms, e os maiores consumidores restantes provavelmente são `count(*)` e `vendas-por-dia`.
+- **O que derrubaria a hipótese:** o planejador não usar o índice com o padrão vindo de parâmetro, ou rota e req/s sem mudança além da variação.
+- **Fonte da ideia:** F17 (PostgreSQL 16, F.35 pg_trgm): os índices GIN/GiST de trigramas "support trigram-based index searches for LIKE, ILIKE [...] queries" e "the search string need not be left-anchored"; aviso: padrões sem trigramas extraíveis degeneram em varredura do índice inteiro (não é o caso: a rota exige ≥ 3 caracteres). A extensão é "trusted": pode ser instalada sem superusuário.
+- **Por que esta e não outra:** ver [Alternativas](#alternativas).
+- **Cuidados de contrato:** consulta igual (só muda o plano); mesmos resultados e ordem (provado no pré-teste); o caso `ab` (< 3 caracteres) continua recusado pela rota antes de chegar ao banco.
+- **Mudança:** `banco/08-indice-produtos-trigramas.sql` (`CREATE EXTENSION pg_trgm` + índice GIN) — commit `<preencher>`
+- **Custo esperado:** ~1,1 MB de índice; escrita em `produtos` mais lenta (índice GIN é mais caro de atualizar); não aparece aqui.
+- **Antes:** experimento 09, 3 pastas de 09/11 22:22–22:25 (mesma sessão).
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -1076,6 +1105,7 @@ Por rota (mediana das medianas; chamadas por execução):
 | F14 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, REFRESH MATERIALIZED VIEW | https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html | 2026-11-09 | doc oficial | dados derivados | "completely replaces the contents of a materialized view"; `CONCURRENTLY`: "Refresh the materialized view without locking out concurrent selects"; "only allowed if there is at least one UNIQUE index on the materialized view which uses only column names and includes all rows" |
 | F15 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.10 citext | https://www.postgresql.org/docs/16/citext.html | 2026-11-09 | doc oficial | índices | "The citext module provides a case-insensitive character string type, citext. Essentially, it internally calls lower when comparing values." (F10, mesma seção 11.7 já citada, também traz: "a common way to do case-insensitive comparisons is to use the lower function", o exemplo `CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1))` e o aviso de que um índice `UNIQUE` assim "would prevent creation of rows whose col1 values differ only in case") |
 | F16 | The Linux Kernel documentation | CFS Bandwidth Control | https://docs.kernel.org/scheduler/sched-bwc.html | 2026-11-09 | doc oficial (técnica primária) | ambiente / limites de CPU | "Within each given 'period' (microseconds), a task group is allocated up to 'quota' microseconds of CPU time"; "Throttled threads will not be able to run again until the next period when the quota is replenished"; padrão `cpu.cfs_period_us=100ms`; `nr_throttled`: "Number of times the group has been throttled/limited". A página descreve a interface do cgroup v1 e remete ao `cgroup-v2.rst` para o `cpu.max` (não aberto) |
+| F17 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.35 pg_trgm | https://www.postgresql.org/docs/16/pgtrgm.html | 2026-11-09 | doc oficial | índices | "A trigram is a group of three consecutive characters taken from a string"; os índices GiST/GIN do módulo "support trigram-based index searches for LIKE, ILIKE, ~, ~* and = queries"; "Unlike B-tree based searches, the search string need not be left-anchored"; "a pattern with no extractable trigrams will degenerate to a full-index scan"; módulo "trusted" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -1089,6 +1119,11 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P9 busca | Índice GIN `pg_trgm` em `produtos.nome` | ~1,1 MB; escrita mais cara | 9,6–10,6 → 0,95–1,95 ms ocioso (pré-teste) | baixo: consulta igual, resultado provado igual | trivial (um `.sql`) | **escolhida** (experimento 10) |
+| P9 busca | Índice GiST `pg_trgm` | parecido | também atende `ILIKE` (F17) | baixo | trivial | não testado; a documentação remete a outra seção para a comparação GIN × GiST — fica como teste futuro |
+| P9 busca | Busca textual (`tsvector`/`tsquery`) | coluna/índice novo | rápida | **quebra o contrato**: casa palavras, não trechos (`lumin` não acharia "Luminaria") | médio | descartada |
+| P9 busca | B-tree em `lower(nome)` com `text_pattern_ops` | ~1 MB | só serve para busca ancorada no começo (`termo%`) | — | trivial | descartada: a busca é por trecho em qualquer posição |
+| P9 busca | Cache por termo na API | memória | ~0 de banco | **enviesa a medição**: a carga usa só 12 termos fixos, o cache acertaria quase sempre, o que não representa usuários reais | baixo | descartada por honestidade de medição |
 | P8 e-mail | Índice de expressão `clientes (lower(email))` | ~4,8 MB | 29,3 → 0,08 ms ocioso (pré-teste) | quase nulo: consulta igual | trivial (um `.sql`) | **escolhida** (experimento 08) |
 | P8 e-mail | Índice `UNIQUE` em `lower(email)` | ~4,8 MB | igual | muda regra de negócio (proíbe e-mails iguais ignorando maiúsculas); a rota devolve lista | trivial | descartada: não é questão de desempenho |
 | P8 e-mail | Coluna `citext` (F15) + índice | migração da coluna | igual | médio: mexe na estrutura (`01-estrutura.sql` não pode mudar; exigiria `ALTER TABLE` em `.sql` novo) e na consulta | médio | descartada: mesmo ganho com mais mudança |
@@ -1154,3 +1189,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 08** (índice de e-mail): pré-teste, hipótese, `.sql`, recriação do banco, evidência, contrato, medições e commits; abriu F15 e conferiu o exemplo de `lower()` em F10 | Saídas brutas em `diagnostico/10-email/`; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 04**: script com profiler do V8 na API (compose à parte) + `pg_stat_statements` + volume de log por rota; interpretou o perfil e propôs as prioridades | Saídas brutas em `diagnostico/11-diagnostico-04/` (`perfil-api.txt`, `ranking.txt`, `log-api.txt`, `carga.txt`); o limite do perfil (símbolos C++ não resolvidos no Alpine) está registrado |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 09**: script de equivalência byte a byte do JSON em 735 janelas, hipótese, mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/12-vendas-sql/`; equivalência também conferida pelo verificador de contrato |
+| 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 10** (`pg_trgm`): pré-teste parametrizado com prova de equivalência, hipótese, alternativas, `.sql`, evidência, contrato, medições e commits; abriu F17 | Saídas brutas em `diagnostico/13-busca-trgm/`; números conferíveis nos arquivos |
