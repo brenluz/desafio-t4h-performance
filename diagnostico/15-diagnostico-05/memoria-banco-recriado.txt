@@ -1,0 +1,13 @@
+# Banco recriado com down -v (o container gera os 300+ MB de dados na criação).
+# Leituras: (a) logo depois da criação + 90 s; (b) docker stats no mesmo momento.
+### (a) cgroup
+memory.max: 536870912
+memory.current: 418004992
+memory.peak: 536870912
+anon 4907008
+file 394698752
+shmem 16154624
+inactive_file 144814080
+active_file 233730048
+### (b) docker stats
+desafio-performance-banco-1 259.5MiB / 512MiB

@@ -1,0 +1,946 @@
+(node:32) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Statistical profiling result from /tmp/v8.log, (12474 ticks, 5434 unaccounted, 0 excluded).
+
+ [Shared libraries]:
+   ticks  total  nonlib   name
+   6044   48.5%          /lib/ld-musl-x86_64.so.1
+     30    0.2%          /usr/lib/libstdc++.so.6.0.32
+      7    0.1%          /usr/local/bin/node
+      5    0.0%          [vdso]
+      3    0.0%          /usr/lib/libgcc_s.so.1
+
+ [JavaScript]:
+   ticks  total  nonlib   name
+     37    0.3%    0.6%  JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+     29    0.2%    0.5%  JS: *next /app/node_modules/express/lib/router/index.js:177:16
+     26    0.2%    0.4%  JS: *parseDataRowMessage /app/node_modules/pg-protocol/dist/parser.js:228:29
+     19    0.2%    0.3%  JS: *emit node:events:466:44
+     17    0.1%    0.3%  JS: *end node:_http_outgoing:1030:45
+     16    0.1%    0.3%  JS: *send /app/node_modules/express/lib/response.js:111:25
+     16    0.1%    0.3%  JS: *_storeHeader node:_http_outgoing:410:22
+     15    0.1%    0.2%  JS: *json /app/node_modules/express/lib/response.js:250:25
+     13    0.1%    0.2%  JS: *writeOrBuffer node:internal/streams/writable:546:23
+     13    0.1%    0.2%  JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+     13    0.1%    0.2%  JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+     12    0.1%    0.2%  JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     12    0.1%    0.2%  JS: *_handleRowDescription /app/node_modules/pg/lib/client.js:359:24
+     12    0.1%    0.2%  JS: *_handleReadyForQuery /app/node_modules/pg/lib/client.js:292:23
+     12    0.1%    0.2%  JS: *_handleDataRow /app/node_modules/pg/lib/client.js:364:17
+     12    0.1%    0.2%  JS: *Socket._writeGeneric node:net:923:42
+     11    0.1%    0.2%  JS: *query /app/node_modules/pg/lib/client.js:510:8
+     11    0.1%    0.2%  JS: *nextTick node:internal/process/task_queues:103:18
+     11    0.1%    0.2%  JS: *bind /app/node_modules/pg-protocol/dist/serializer.js:87:14
+     10    0.1%    0.2%  RegExp: (\d{1,})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d{1,})?.*?( BC)?$
+     10    0.1%    0.2%  JS: *parseDate /app/node_modules/postgres-date/index.js:8:37
+     10    0.1%    0.2%  JS: *addListener node:events:610:58
+      9    0.1%    0.1%  RegExp: ^([A-Za-z]+)(?: (\d+))?(?: (\d+))?
+      9    0.1%    0.1%  RegExp: ; *([!#$%&'*+.^_`|~0-9A-Za-z-]+) *= *("(?:[\u000b\u0020\u0021\u0023-\u005b\u005d-\u007e\u0080-\u00ff]|\\[\u000b\u0020-\u00ff])*"|[!#$%&'*+.^_`|~0-9A-Za-z-]+) *
+      9    0.1%    0.1%  JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      9    0.1%    0.1%  JS: *parseField /app/node_modules/pg-protocol/dist/parser.js:209:20
+      9    0.1%    0.1%  JS: *header /app/node_modules/express/lib/response.js:777:29
+      9    0.1%    0.1%  JS: *get node:_http_incoming:109:16
+      9    0.1%    0.1%  JS: *clearBuffer node:internal/streams/writable:742:21
+      9    0.1%    0.1%  JS: *Readable.read node:internal/streams/readable:645:35
+      8    0.1%    0.1%  RegExp: ^[\^_`a-zA-Z\-0-9!#$%&'*+.|~]+$
+      8    0.1%    0.1%  JS: *wrappedFn node:internal/errors:536:21
+      8    0.1%    0.1%  JS: *setTimeout node:timers:139:20
+      8    0.1%    0.1%  JS: *processPromiseRejections node:internal/process/promises:436:34
+      8    0.1%    0.1%  JS: *_handleParseComplete /app/node_modules/pg/lib/client.js:389:23
+      7    0.1%    0.1%  RegExp: [^\t\x20-\x7e\x80-\xff]
+      7    0.1%    0.1%  RegExp: ([Z+-])(\d{2})?:?(\d{2})?:?(\d{2})?
+      7    0.1%    0.1%  JS: *resOnFinish node:_http_server:968:21
+      7    0.1%    0.1%  JS: *query /app/node_modules/express/lib/middleware/query.js:39:24
+      7    0.1%    0.1%  JS: *parseQueryStringKeys /app/node_modules/qs/lib/parse.js:160:46
+      7    0.1%    0.1%  JS: *onwrite node:internal/streams/writable:613:17
+      7    0.1%    0.1%  JS: *log node:internal/console/constructor:384:6
+      7    0.1%    0.1%  JS: *flush /app/node_modules/pg-protocol/dist/buffer-writer.js:100:10
+      7    0.1%    0.1%  JS: *clearIncoming node:_http_server:955:23
+      7    0.1%    0.1%  JS: *app.<computed> /app/node_modules/express/lib/application.js:490:25
+      7    0.1%    0.1%  JS: *Writable.write node:internal/streams/writable:502:36
+      6    0.0%    0.1%  RegExp: ;\s*charset\s*=
+      6    0.0%    0.1%  JS: *write_ node:_http_outgoing:894:16
+      6    0.0%    0.1%  JS: *maybeReadMore_ node:internal/streams/readable:862:24
+      6    0.0%    0.1%  JS: *getEncodingOps node:buffer:718:24
+      6    0.0%    0.1%  JS: *consultar /app/src/db.js:21:25
+      6    0.0%    0.1%  JS: *_release /app/node_modules/pg-pool/index.js:384:11
+      6    0.0%    0.1%  JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      5    0.0%    0.1%  JS: *value node:internal/console/constructor:277:20
+      5    0.0%    0.1%  JS: *setCharset /app/node_modules/express/lib/utils.js:246:41
+      5    0.0%    0.1%  JS: *resetSocketTimeout node:_http_server:1147:28
+      5    0.0%    0.1%  JS: *parserOnMessageComplete node:_http_common:136:33
+      5    0.0%    0.1%  JS: *parserOnIncoming node:_http_server:1028:26
+      5    0.0%    0.1%  JS: *parseCommandCompleteMessage /app/node_modules/pg-protocol/dist/parser.js:176:37
+      5    0.0%    0.1%  JS: *noParse /app/node_modules/pg-types/index.js:17:18
+      5    0.0%    0.1%  JS: *maybeReadMore node:internal/streams/readable:855:23
+      5    0.0%    0.1%  JS: *get node:internal/bootstrap/node:417:8
+      5    0.0%    0.1%  JS: *get node:internal/bootstrap/node:100:8
+      5    0.0%    0.1%  JS: *entitytag /app/node_modules/etag/index.js:39:20
+      5    0.0%    0.1%  JS: *addCString /app/node_modules/pg-protocol/dist/buffer-writer.js:37:15
+      5    0.0%    0.1%  JS: *<anonymous> node:internal/validators:176:40
+      5    0.0%    0.1%  JS: *<anonymous> /app/src/rotas.js:62:47
+      4    0.0%    0.1%  JS: ^strictContentLength node:_http_outgoing:883:29
+      4    0.0%    0.1%  JS: ^Readable.read node:internal/streams/readable:645:35
+      4    0.0%    0.1%  JS: *setUnrefTimeout node:internal/timers:389:25
+      4    0.0%    0.1%  JS: *parserOnHeadersComplete node:_http_common:71:33
+      4    0.0%    0.1%  JS: *onStreamRead node:internal/stream_base_commons:168:22
+      4    0.0%    0.1%  JS: *insert node:internal/timers:366:16
+      4    0.0%    0.1%  JS: *endReadableNT node:internal/streams/readable:1690:23
+      4    0.0%    0.1%  JS: *detachSocket node:_http_server:292:62
+      4    0.0%    0.1%  JS: *app /app/node_modules/express/lib/express.js:38:21
+      4    0.0%    0.1%  JS: *_send /app/node_modules/pg/lib/connection.js:144:8
+      4    0.0%    0.1%  JS: *_flushOutput node:_http_outgoing:1154:63
+      4    0.0%    0.1%  JS: *Readable.push node:internal/streams/readable:385:35
+      3    0.0%    0.0%  RegExp: ^\d+$
+      3    0.0%    0.0%  RegExp: ^[!#$%&'*+.^_`|~0-9A-Za-z-]+$
+      3    0.0%    0.0%  JS: ^toString node:buffer:832:46
+      3    0.0%    0.0%  JS: ^isstats /app/node_modules/etag/index.js:104:18
+      3    0.0%    0.0%  JS: ^_handleParseComplete /app/node_modules/pg/lib/client.js:389:23
+      3    0.0%    0.0%  JS: *toString node:buffer:832:46
+      3    0.0%    0.0%  JS: *setHeader node:_http_outgoing:653:57
+      3    0.0%    0.0%  JS: *resume node:internal/streams/readable:1245:16
+      3    0.0%    0.0%  JS: *readUInt32BE node:internal/buffer:306:22
+      3    0.0%    0.0%  JS: *parseInteger /app/node_modules/pg-types/lib/textParsers.js:109:28
+      3    0.0%    0.0%  JS: *onParserExecute node:_http_server:832:25
+      3    0.0%    0.0%  JS: *normalizeParseOptions /app/node_modules/qs/lib/parse.js:217:59
+      3    0.0%    0.0%  JS: *formatWithOptions node:internal/util/inspect:2164:27
+      3    0.0%    0.0%  JS: *fastparse /app/node_modules/parseurl/index.js:95:20
+      3    0.0%    0.0%  JS: *endReadable node:internal/streams/readable:1680:21
+      3    0.0%    0.0%  JS: *dispatch /app/node_modules/express/lib/router/route.js:101:45
+      3    0.0%    0.0%  JS: *assignSocket node:_http_server:281:62
+      3    0.0%    0.0%  JS: *addInt32PrefixedString /app/node_modules/pg-protocol/dist/buffer-writer.js:63:27
+      3    0.0%    0.0%  JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      3    0.0%    0.0%  JS: *_handleCommandComplete /app/node_modules/pg/lib/client.js:379:25
+      3    0.0%    0.0%  JS: *Readable.on node:internal/streams/readable:1125:33
+      3    0.0%    0.0%  JS: *<anonymous> node:internal/validators:459:42
+      3    0.0%    0.0%  JS: *<anonymous> node:internal/console/constructor:364:10
+      3    0.0%    0.0%  JS: *<anonymous> /app/src/rotas.js:53:39
+      2    0.0%    0.0%  RegExp: ^\/saude\/?$
+      2    0.0%    0.0%  RegExp: (\[[^[\]]*])
+      2    0.0%    0.0%  JS: ^write_ node:_http_outgoing:894:16
+      2    0.0%    0.0%  JS: ^query /app/node_modules/pg/lib/client.js:510:8
+      2    0.0%    0.0%  JS: ^query /app/node_modules/pg-pool/index.js:431:8
+      2    0.0%    0.0%  JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+      2    0.0%    0.0%  JS: ^parserOnIncoming node:_http_server:1028:26
+      2    0.0%    0.0%  JS: ^onStreamRead node:internal/stream_base_commons:168:22
+      2    0.0%    0.0%  JS: ^onDestroy node:internal/streams/destroy:92:21
+      2    0.0%    0.0%  JS: ^matchKnownFields node:_http_incoming:276:26
+      2    0.0%    0.0%  JS: ^isContentDispositionField node:_http_outgoing:98:35
+      2    0.0%    0.0%  JS: ^get node:net:691:16
+      2    0.0%    0.0%  JS: ^endReadableNT node:internal/streams/readable:1690:23
+      2    0.0%    0.0%  JS: ^end node:_http_outgoing:1030:45
+      2    0.0%    0.0%  JS: ^destroy node:internal/streams/destroy:48:17
+      2    0.0%    0.0%  JS: ^createPool node:buffer:152:20
+      2    0.0%    0.0%  JS: ^addChunk node:internal/streams/readable:548:18
+      2    0.0%    0.0%  JS: ^_destroy node:_http_incoming:218:55
+      2    0.0%    0.0%  JS: ^_addListener node:events:547:22
+      2    0.0%    0.0%  JS: ^EventEmitter.init node:events:342:29
+      2    0.0%    0.0%  JS: ^<anonymous> node:internal/validators:176:40
+      2    0.0%    0.0%  JS: *set /app/node_modules/express/lib/application.js:359:23
+      2    0.0%    0.0%  JS: *resume_ node:internal/streams/readable:1252:17
+      2    0.0%    0.0%  JS: *res.json /app/src/server.js:10:14
+      2    0.0%    0.0%  JS: *res.get /app/node_modules/express/lib/response.js:811:19
+      2    0.0%    0.0%  JS: *removeListener node:events:681:28
+      2    0.0%    0.0%  JS: *parseQueryStringValues /app/node_modules/qs/lib/parse.js:55:50
+      2    0.0%    0.0%  JS: *onDestroy node:internal/streams/destroy:92:21
+      2    0.0%    0.0%  JS: *handleRowDescription /app/node_modules/pg/lib/query.js:76:23
+      2    0.0%    0.0%  JS: *handleReadyForQuery /app/node_modules/pg/lib/query.js:136:22
+      2    0.0%    0.0%  JS: *get node:internal/streams/writable:1008:8
+      2    0.0%    0.0%  JS: *fromStringFast node:buffer:442:24
+      2    0.0%    0.0%  JS: *emitCloseNT node:internal/streams/destroy:132:21
+      2    0.0%    0.0%  JS: *checkListener node:events:275:23
+      2    0.0%    0.0%  JS: *afterWriteTick node:internal/streams/writable:691:24
+      2    0.0%    0.0%  JS: *_send node:_http_outgoing:354:49
+      2    0.0%    0.0%  JS: *RowDescriptionMessage /app/node_modules/pg-protocol/dist/messages.js:74:16
+      2    0.0%    0.0%  JS: *Readable node:internal/streams/readable:318:18
+      2    0.0%    0.0%  JS: *FastBuffer node:internal/buffer:960:14
+      2    0.0%    0.0%  JS: *<anonymous> node:internal/validators:161:40
+      1    0.0%    0.0%  RegExp: ^\/clientes(?:\/([^/]+?))\/?$
+      1    0.0%    0.0%  RegExp: ^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$
+      1    0.0%    0.0%  RegExp: ^-?infinity$
+      1    0.0%    0.0%  RegExp: (\[[^[\]]*]) {1}
+      1    0.0%    0.0%  RegExp: %5D
+      1    0.0%    0.0%  RegExp: %5B
+      1    0.0%    0.0%  JS: ^writevGeneric node:internal/stream_base_commons:123:23
+      1    0.0%    0.0%  JS: ^writeOrBuffer node:internal/streams/writable:546:23
+      1    0.0%    0.0%  JS: ^writeInt32BE node:internal/buffer:891:22
+      1    0.0%    0.0%  JS: ^write node:buffer:632:12
+      1    0.0%    0.0%  JS: ^updateOutgoingData node:_http_server:753:28
+      1    0.0%    0.0%  JS: ^update node:internal/crypto/hash:107:40
+      1    0.0%    0.0%  JS: ^unrefActive node:internal/timers:332:21
+      1    0.0%    0.0%  JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1    0.0%    0.0%  JS: ^socketOnDrain node:_http_server:758:23
+      1    0.0%    0.0%  JS: ^socketListenerWrap node:_http_server:1191:37
+      1    0.0%    0.0%  JS: ^slice node:buffer:1175:40
+      1    0.0%    0.0%  JS: ^setTimeout node:timers:139:20
+      1    0.0%    0.0%  JS: ^router /app/node_modules/express/lib/router/index.js:46:18
+      1    0.0%    0.0%  JS: ^restore /app/node_modules/express/lib/router/index.js:631:17
+      1    0.0%    0.0%  JS: ^resolve node:path:1163:10
+      1    0.0%    0.0%  JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      1    0.0%    0.0%  JS: ^popAsyncContext node:internal/async_hooks:553:25
+      1    0.0%    0.0%  JS: ^percolateUp node:internal/priority_queue:69:14
+      1    0.0%    0.0%  JS: ^parserOnHeadersComplete node:_http_common:71:33
+      1    0.0%    0.0%  JS: ^parseRow /app/node_modules/pg/lib/result.js:63:11
+      1    0.0%    0.0%  JS: ^parseCommandCompleteMessage /app/node_modules/pg-protocol/dist/parser.js:176:37
+      1    0.0%    0.0%  JS: ^parse /app/node_modules/pg-protocol/dist/serializer.js:39:15
+      1    0.0%    0.0%  JS: ^onwrite node:internal/streams/writable:613:17
+      1    0.0%    0.0%  JS: ^onEofChunk node:internal/streams/readable:786:20
+      1    0.0%    0.0%  JS: ^normalizeRequirableId node:internal/bootstrap/realm:301:31
+      1    0.0%    0.0%  JS: ^newAsyncId node:internal/async_hooks:417:20
+      1    0.0%    0.0%  JS: ^inteiroPositivo /app/src/rotas.js:10:25
+      1    0.0%    0.0%  JS: ^insert node:internal/timers:366:16
+      1    0.0%    0.0%  JS: ^howMuchToRead node:internal/streams/readable:628:23
+      1    0.0%    0.0%  JS: ^header /app/node_modules/express/lib/response.js:777:29
+      1    0.0%    0.0%  JS: ^hasBeenParsed /app/node_modules/pg/lib/query.js:171:16
+      1    0.0%    0.0%  JS: ^handlePacket /app/node_modules/pg-protocol/dist/parser.js:91:17
+      1    0.0%    0.0%  JS: ^handleCommandComplete /app/node_modules/pg/lib/query.js:102:24
+      1    0.0%    0.0%  JS: ^handle /app/node_modules/express/lib/router/index.js:136:31
+      1    0.0%    0.0%  JS: ^getObserverType node:internal/perf/observe:134:25
+      1    0.0%    0.0%  JS: ^getHashCache node:internal/crypto/util:102:22
+      1    0.0%    0.0%  JS: ^get node:internal/bootstrap/node:417:8
+      1    0.0%    0.0%  JS: ^fresh /app/node_modules/fresh/index.js:33:16
+      1    0.0%    0.0%  JS: ^ensure /app/node_modules/pg-protocol/dist/buffer-writer.js:12:11
+      1    0.0%    0.0%  JS: ^decode_param /app/node_modules/express/lib/router/layer.js:166:22
+      1    0.0%    0.0%  JS: ^dataValida /app/src/rotas.js:16:20
+      1    0.0%    0.0%  JS: ^createUnsafeBuffer node:internal/buffer:1061:28
+      1    0.0%    0.0%  JS: ^copy node:buffer:824:16
+      1    0.0%    0.0%  JS: ^clearBuffer node:internal/streams/writable:742:21
+      1    0.0%    0.0%  JS: ^checkInvalidHeaderChar node:_http_common:222:32
+      1    0.0%    0.0%  JS: ^cb /app/node_modules/pg-pool/index.js:36:23
+      1    0.0%    0.0%  JS: ^bind /app/node_modules/pg-protocol/dist/serializer.js:87:14
+      1    0.0%    0.0%  JS: ^assignSocket node:_http_server:281:62
+      1    0.0%    0.0%  JS: ^assertEncoding node:internal/fs/utils:155:24
+      1    0.0%    0.0%  JS: ^allocUnsafe node:buffer:402:42
+      1    0.0%    0.0%  JS: ^afterWriteDispatched node:internal/stream_base_commons:156:30
+      1    0.0%    0.0%  JS: ^addInt32PrefixedString /app/node_modules/pg-protocol/dist/buffer-writer.js:63:27
+      1    0.0%    0.0%  JS: ^addCommandComplete /app/node_modules/pg/lib/result.js:28:21
+      1    0.0%    0.0%  JS: ^addCString /app/node_modules/pg-protocol/dist/buffer-writer.js:37:15
+      1    0.0%    0.0%  JS: ^_send node:_http_outgoing:354:49
+      1    0.0%    0.0%  JS: ^_send /app/node_modules/pg/lib/connection.js:144:8
+      1    0.0%    0.0%  JS: ^_release /app/node_modules/pg-pool/index.js:384:11
+      1    0.0%    0.0%  JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      1    0.0%    0.0%  JS: ^_finish node:_http_server:231:52
+      1    0.0%    0.0%  JS: ^_copyActual node:buffer:239:21
+      1    0.0%    0.0%  JS: ^ServerResponse node:_http_server:195:24
+      1    0.0%    0.0%  JS: ^SafeIterator node:internal/per_context/primordials:332:16
+      1    0.0%    0.0%  JS: ^ReadableState node:internal/streams/readable:260:23
+      1    0.0%    0.0%  JS: ^Readable.on node:internal/streams/readable:1125:33
+      1    0.0%    0.0%  JS: ^OutgoingMessage node:_http_outgoing:102:25
+      1    0.0%    0.0%  JS: ^IncomingMessage node:_http_incoming:50:25
+      1    0.0%    0.0%  JS: ^Hash node:internal/crypto/hash:66:14
+      1    0.0%    0.0%  JS: ^<anonymous> node:internal/validators:241:3
+      1    0.0%    0.0%  JS: ^<anonymous> node:internal/console/constructor:364:10
+      1    0.0%    0.0%  JS: ^<anonymous> /app/src/rotas.js:40:35
+      1    0.0%    0.0%  JS: ^<anonymous> /app/node_modules/qs/lib/utils.js:92:48
+      1    0.0%    0.0%  JS: *writeHead node:_http_server:341:19
+      1    0.0%    0.0%  JS: *validateOffset node:buffer:120:24
+      1    0.0%    0.0%  JS: *updateOutgoingData node:_http_server:753:28
+      1    0.0%    0.0%  JS: *unenroll node:timers:77:18
+      1    0.0%    0.0%  JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      1    0.0%    0.0%  JS: *slowCases node:internal/util:207:19
+      1    0.0%    0.0%  JS: *router /app/node_modules/express/lib/router/index.js:46:18
+      1    0.0%    0.0%  JS: *parseurl /app/node_modules/parseurl/index.js:35:19
+      1    0.0%    0.0%  JS: *parseRow /app/node_modules/pg/lib/result.js:63:11
+      1    0.0%    0.0%  JS: *parseBigInteger /app/node_modules/pg-types/lib/textParsers.js:113:31
+      1    0.0%    0.0%  JS: *onFinish node:_http_outgoing:1025:18
+      1    0.0%    0.0%  JS: *noop node:internal/util/debuglog:46:14
+      1    0.0%    0.0%  JS: *isstats /app/node_modules/etag/index.js:104:18
+      1    0.0%    0.0%  JS: *isTraceHTTPEnabled node:internal/http:40:28
+      1    0.0%    0.0%  JS: *handle /app/node_modules/express/lib/router/index.js:136:31
+      1    0.0%    0.0%  JS: *getHeader node:_http_outgoing:740:57
+      1    0.0%    0.0%  JS: *get node:internal/streams/writable:1067:8
+      1    0.0%    0.0%  JS: *get node:internal/streams/readable:1540:8
+      1    0.0%    0.0%  JS: *get node:internal/streams/duplex:162:8
+      1    0.0%    0.0%  JS: *fromString node:buffer:475:20
+      1    0.0%    0.0%  JS: *expressInit /app/node_modules/express/lib/middleware/init.js:29:30
+      1    0.0%    0.0%  JS: *emitReadable_ node:internal/streams/readable:828:23
+      1    0.0%    0.0%  JS: *emitCloseNT node:_http_server:1017:21
+      1    0.0%    0.0%  JS: *copy node:buffer:824:16
+      1    0.0%    0.0%  JS: *clearTimeout node:timers:184:22
+      1    0.0%    0.0%  JS: *callback node:internal/streams/writable:762:63
+      1    0.0%    0.0%  JS: *append node:internal/linkedlist:30:16
+      1    0.0%    0.0%  JS: *_writeRaw node:_http_outgoing:380:19
+      1    0.0%    0.0%  JS: *_unrefTimer node:net:507:52
+      1    0.0%    0.0%  JS: *_getMaxListeners node:events:420:26
+      1    0.0%    0.0%  JS: *Socket.read node:net:768:33
+      1    0.0%    0.0%  JS: *Query /app/node_modules/pg/lib/query.js:9:14
+      1    0.0%    0.0%  JS: *OutgoingMessage node:_http_outgoing:102:25
+      1    0.0%    0.0%  JS: *<anonymous> /app/src/rotas.js:142:25
+      1    0.0%    0.0%  JS: *<anonymous> /app/node_modules/pg-pool/index.js:467:36
+      1    0.0%    0.0%  JS: *<anonymous> /app/node_modules/express/lib/request.js:467:36
+
+ [C++]:
+   ticks  total  nonlib   name
+
+ [Summary]:
+   ticks  total  nonlib   name
+    951    7.6%   14.9%  JavaScript
+      0    0.0%    0.0%  C++
+    431    3.5%    6.8%  GC
+   6089   48.8%          Shared libraries
+   5434   43.6%          Unaccounted
+
+ [C++ entry points]:
+   ticks    cpp   total   name
+
+ [Bottom up (heavy) profile]:
+  Note: percentage shows a share of a particular caller in the total
+  amount of its parent calls.
+  Callers occupying less than 1.0% are not shown.
+
+   ticks parent  name
+   6044   48.5%  /lib/ld-musl-x86_64.so.1
+   2302   38.1%    JS: *writeOrBuffer node:internal/streams/writable:546:23
+   1075   46.7%      JS: *_send /app/node_modules/pg/lib/connection.js:144:8
+    495   46.0%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+    456   92.1%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    410   89.9%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+     46   10.1%            JS: ^query /app/node_modules/pg/lib/client.js:510:8
+     39    7.9%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     39  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    256   23.8%        JS: *_getRows /app/node_modules/pg/lib/query.js:179:11
+    253   98.8%          JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+    228   90.1%            JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+     25    9.9%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      3    1.2%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      3  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+    170   15.8%        JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    107   62.9%          JS: *query /app/node_modules/pg/lib/client.js:510:8
+    107  100.0%            JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+     63   37.1%          JS: ^query /app/node_modules/pg/lib/client.js:510:8
+     62   98.4%            JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+      1    1.6%            JS: ^<anonymous> /app/node_modules/pg-pool/index.js:449:18
+     65    6.0%        JS: ^parse /app/node_modules/pg/lib/connection.js:156:8
+     65  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+     65  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     26    2.4%        JS: ^describe /app/node_modules/pg/lib/connection.js:205:11
+     26  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+     26  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     26    2.4%        JS: ^bind /app/node_modules/pg/lib/connection.js:161:7
+     26  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+     26  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     24    2.2%        JS: ^execute /app/node_modules/pg/lib/connection.js:166:10
+     24  100.0%          JS: ^_getRows /app/node_modules/pg/lib/query.js:179:11
+     24  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+     13    1.2%        JS: ^sync /app/node_modules/pg/lib/connection.js:176:7
+     13  100.0%          JS: ^_getRows /app/node_modules/pg/lib/query.js:179:11
+     13  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+    742   32.2%      JS: *Writable.write node:internal/streams/writable:502:36
+    673   90.7%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+    617   91.7%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    557   90.3%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+     60    9.7%            JS: ^query /app/node_modules/pg/lib/client.js:510:8
+     56    8.3%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     56  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+     37    5.0%        JS: ^value node:internal/console/constructor:277:20
+     37  100.0%          JS: ^log node:internal/console/constructor:384:6
+     35   94.6%            JS: ^res.json /app/src/server.js:10:14
+      2    5.4%            JS: *<anonymous> /app/src/rotas.js:62:47
+     31    4.2%        JS: ^_send /app/node_modules/pg/lib/connection.js:144:8
+     14   45.2%          JS: ^parse /app/node_modules/pg/lib/connection.js:156:8
+     14  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      8   25.8%          JS: ^execute /app/node_modules/pg/lib/connection.js:166:10
+      8  100.0%            JS: ^_getRows /app/node_modules/pg/lib/query.js:179:11
+      4   12.9%          JS: ^bind /app/node_modules/pg/lib/connection.js:161:7
+      4  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      3    9.7%          JS: ^sync /app/node_modules/pg/lib/connection.js:176:7
+      3  100.0%            JS: ^_getRows /app/node_modules/pg/lib/query.js:179:11
+      2    6.5%          JS: ^describe /app/node_modules/pg/lib/connection.js:205:11
+      2  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+    264   11.5%      JS: *_write node:internal/streams/writable:451:16
+    258   97.7%        JS: *value node:internal/console/constructor:277:20
+    251   97.3%          JS: *log node:internal/console/constructor:384:6
+     66   26.3%            JS: *res.json /app/src/server.js:10:14
+     57   22.7%            JS: *<anonymous> /app/src/rotas.js:62:47
+     51   20.3%            JS: ^res.json /app/src/server.js:10:14
+     43   17.1%            JS: *<anonymous> /app/src/rotas.js:53:39
+     32   12.7%            JS: *<anonymous> /app/src/rotas.js:111:34
+      7    2.7%          JS: ^log node:internal/console/constructor:384:6
+      5   71.4%            JS: ^res.json /app/src/server.js:10:14
+      2   28.6%            JS: *<anonymous> /app/src/rotas.js:62:47
+      6    2.3%        JS: ^Writable.write node:internal/streams/writable:502:36
+      5   83.3%          JS: ^_send /app/node_modules/pg/lib/connection.js:144:8
+      2   40.0%            JS: ^parse /app/node_modules/pg/lib/connection.js:156:8
+      1   20.0%            JS: ^execute /app/node_modules/pg/lib/connection.js:166:10
+      1   20.0%            JS: ^describe /app/node_modules/pg/lib/connection.js:205:11
+      1   20.0%            JS: ^bind /app/node_modules/pg/lib/connection.js:161:7
+      1   16.7%          JS: ^value node:internal/console/constructor:277:20
+      1  100.0%            JS: ^log node:internal/console/constructor:384:6
+    217    9.4%      JS: *_getRows /app/node_modules/pg/lib/query.js:179:11
+    215   99.1%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+    198   92.1%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    178   89.9%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+     20   10.1%            JS: ^query /app/node_modules/pg/lib/client.js:510:8
+     17    7.9%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+     17  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+    610   10.1%    JS: *Socket._writeGeneric node:net:923:42
+    553   90.7%      JS: *clearBuffer node:internal/streams/writable:742:21
+    490   88.6%        JS: *end node:_http_outgoing:1030:45
+    490  100.0%          JS: *send /app/node_modules/express/lib/response.js:111:25
+    490  100.0%            JS: *json /app/node_modules/express/lib/response.js:250:25
+     63   11.4%        JS: *Writable.uncork node:internal/streams/writable:518:37
+     63  100.0%          JS: ^end node:_http_outgoing:1030:45
+     63  100.0%            JS: *send /app/node_modules/express/lib/response.js:111:25
+     54    8.9%      JS: ^Socket._writev node:net:960:36
+     54  100.0%        JS: ^doWrite node:internal/streams/writable:585:17
+     54  100.0%          JS: ^clearBuffer node:internal/streams/writable:742:21
+     54  100.0%            JS: *Writable.uncork node:internal/streams/writable:518:37
+
+   5434   43.6%  UNKNOWN
+    218    4.0%    JS: *write_ node:_http_outgoing:894:16
+    184   84.4%      JS: *end node:_http_outgoing:1030:45
+    184  100.0%        JS: *send /app/node_modules/express/lib/response.js:111:25
+    184  100.0%          JS: *json /app/node_modules/express/lib/response.js:250:25
+     50   27.2%            JS: *<anonymous> /app/src/rotas.js:53:39
+     40   21.7%            JS: ^res.json /app/src/server.js:10:14
+     30   16.3%            JS: *<anonymous> /app/src/rotas.js:111:34
+     29   15.8%            JS: *<anonymous> /app/src/rotas.js:62:47
+     26   14.1%            JS: *res.json /app/src/server.js:10:14
+      7    3.8%            JS: *<anonymous> /app/src/rotas.js:167:52
+      2    1.1%            JS: *<anonymous> /app/src/rotas.js:151:41
+     34   15.6%      JS: ^end node:_http_outgoing:1030:45
+     34  100.0%        JS: *send /app/node_modules/express/lib/response.js:111:25
+     34  100.0%          JS: *json /app/node_modules/express/lib/response.js:250:25
+     20   58.8%            JS: *res.json /app/src/server.js:10:14
+      7   20.6%            JS: *<anonymous> /app/src/rotas.js:111:34
+      4   11.8%            JS: ^res.json /app/src/server.js:10:14
+      3    8.8%            JS: *<anonymous> /app/src/rotas.js:62:47
+    202    3.7%    JS: *json /app/node_modules/express/lib/response.js:250:25
+     46   22.8%      JS: *res.json /app/src/server.js:10:14
+     12   26.1%        JS: ^<anonymous> /app/src/rotas.js:151:41
+     12  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     11   23.9%        JS: ^<anonymous> /app/src/rotas.js:40:35
+     11  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     10   21.7%        JS: ^<anonymous> /app/src/rotas.js:53:39
+     10  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      6   13.0%        JS: ^<anonymous> /app/src/rotas.js:167:52
+      6  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      4    8.7%        JS: ^<anonymous> /app/src/rotas.js:111:34
+      4  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      3    6.5%        JS: ^<anonymous> /app/src/rotas.js:202:50
+      3  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     44   21.8%      JS: *<anonymous> /app/src/rotas.js:62:47
+     44  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     44   21.8%      JS: *<anonymous> /app/src/rotas.js:111:34
+     44  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     41   20.3%      JS: ^res.json /app/src/server.js:10:14
+     17   41.5%        JS: ^<anonymous> /app/src/rotas.js:40:35
+     17  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     14   34.1%        JS: ^<anonymous> /app/src/rotas.js:151:41
+     14  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      8   19.5%        JS: ^<anonymous> /app/src/rotas.js:167:52
+      8  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2    4.9%        JS: ^<anonymous> /app/src/rotas.js:202:50
+      2  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     26   12.9%      JS: *<anonymous> /app/src/rotas.js:53:39
+     26  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+    139    2.6%    JS: *parseDate /app/node_modules/postgres-date/index.js:8:37
+    138   99.3%      JS: *_handleDataRow /app/node_modules/pg/lib/client.js:364:17
+    134   97.1%        JS: *emit node:events:466:44
+    134  100.0%          JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+    109   81.3%            JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     25   18.7%            JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      2    1.4%        JS: ^emit node:events:466:44
+      2  100.0%          JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+      2  100.0%            JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      2    1.4%        JS: *<anonymous> /app/node_modules/pg/lib/connection.js:111:19
+      2  100.0%          JS: ^parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+      2  100.0%            JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+    138    2.5%    JS: ^writevGeneric node:internal/stream_base_commons:123:23
+    138  100.0%      JS: ^Socket._writeGeneric node:net:923:42
+    138  100.0%        JS: ^Socket._writev node:net:960:36
+    138  100.0%          JS: ^doWrite node:internal/streams/writable:585:17
+    138  100.0%            JS: ^clearBuffer node:internal/streams/writable:742:21
+    118    2.2%    JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+    113   95.8%      JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+     28   24.8%        JS: ~get node:internal/util:627:17
+     22   78.6%          JS: ~isCloudflareRuntime /app/node_modules/pg/lib/stream.js:60:29
+     22  100.0%            JS: ~getStreamFuncs /app/node_modules/pg/lib/stream.js:76:24
+      5   17.9%          JS: ~lib/web/fetch/response.js node:internal/deps/undici/undici:8739:30
+      5  100.0%            JS: ^__require node:internal/deps/undici/undici:5:49
+      1    3.6%          JS: ~<anonymous> /app/node_modules/safer-buffer/safer.js:1:1
+      1  100.0%            JS: ^Module._compile node:internal/modules/cjs/loader:1409:37
+      9    8.0%        JS: ~<anonymous> node:crypto:1:1
+      9  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      9  100.0%            JS: ^compileForPublicLoader node:internal/bootstrap/realm:331:25
+      8    7.1%        JS: ~<anonymous> node:http2:1:1
+      8  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      8  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      5    4.4%        JS: ~<anonymous> node:internal/streams/duplex:1:1
+      5  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      5  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      4    3.5%        JS: ~<anonymous> node:tty:1:1
+      4  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      4  100.0%            JS: ~compileForPublicLoader node:internal/bootstrap/realm:331:25
+      4    3.5%        JS: ~<anonymous> node:net:1:1
+      4  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      4  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      4    3.5%        JS: ~<anonymous> node:internal/fs/promises:1:1
+      4  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      4  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      4    3.5%        JS: ~<anonymous> node:http:1:1
+      4  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      4  100.0%            JS: ~compileForPublicLoader node:internal/bootstrap/realm:331:25
+      3    2.7%        JS: ~<anonymous> node:tls:1:1
+      3  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      3  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      3    2.7%        JS: ~<anonymous> node:internal/webstreams/readablestream:1:1
+      3  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      3  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      3    2.7%        JS: ~<anonymous> node:internal/cluster/primary:1:1
+      3  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      3  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      3    2.7%        JS: ~<anonymous> node:internal/child_process:1:1
+      3  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      3  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      3    2.7%        JS: ~<anonymous> node:_http_client:1:1
+      3  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      3  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      3    2.7%        JS: ^resolveExports node:internal/modules/cjs/loader:624:24
+      3  100.0%          JS: ^Module._findPath node:internal/modules/cjs/loader:666:28
+      3  100.0%            JS: ~Module._resolveFilename node:internal/modules/cjs/loader:1139:35
+      2    1.8%        JS: ~<anonymous> node:perf_hooks:1:1
+      2  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      2  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      2    1.8%        JS: ~<anonymous> node:internal/streams/readable:1:1
+      2  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      2  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      2    1.8%        JS: ~<anonymous> node:internal/streams/operators:1:1
+      2  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      2  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      2    1.8%        JS: ~<anonymous> node:internal/http2/core:1:1
+      2  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      2  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      2    1.8%        JS: ~<anonymous> node:internal/crypto/hkdf:1:1
+      2  100.0%          JS: ^compileForInternalLoader node:internal/bootstrap/realm:383:27
+      2  100.0%            JS: ^requireBuiltin node:internal/bootstrap/realm:420:24
+      2    1.8%        JS: ^requireWithFallbackInDeps node:internal/bootstrap/realm:434:35
+      1   50.0%          JS: ~lib/web/websocket/events.js node:internal/deps/undici/undici:10970:32
+      1  100.0%            JS: ^__require node:internal/deps/undici/undici:5:49
+      1   50.0%          JS: ~lib/dispatcher/client-h2.js node:internal/deps/undici/undici:6547:32
+      1  100.0%            JS: ^__require node:internal/deps/undici/undici:5:49
+      3    2.5%      JS: ^compileForPublicLoader node:internal/bootstrap/realm:331:25
+      3  100.0%        JS: ^loadBuiltinModule node:internal/modules/helpers:96:27
+      3  100.0%          JS: ^Module._load node:internal/modules/cjs/loader:1016:24
+      3  100.0%            JS: ^Module.require node:internal/modules/cjs/loader:1303:36
+      2    1.7%      JS: ~compileForPublicLoader node:internal/bootstrap/realm:331:25
+      2  100.0%        JS: ~loadBuiltinModule node:internal/modules/helpers:96:27
+      2  100.0%          JS: ~Module._load node:internal/modules/cjs/loader:1016:24
+      1   50.0%            JS: ~Module.require node:internal/modules/cjs/loader:1303:36
+      1   50.0%            JS: ^Module.require node:internal/modules/cjs/loader:1303:36
+    115    2.1%    JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+    113    2.1%    JS: *send /app/node_modules/express/lib/response.js:111:25
+    102   90.3%      JS: *json /app/node_modules/express/lib/response.js:250:25
+     28   27.5%        JS: ^res.json /app/src/server.js:10:14
+     16   57.1%          JS: ^<anonymous> /app/src/rotas.js:151:41
+     16  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      6   21.4%          JS: ^<anonymous> /app/src/rotas.js:40:35
+      6  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      5   17.9%          JS: ^<anonymous> /app/src/rotas.js:167:52
+      5  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    3.6%          JS: ^<anonymous> /app/src/rotas.js:53:39
+      1  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     24   23.5%        JS: *res.json /app/src/server.js:10:14
+      7   29.2%          JS: ^<anonymous> /app/src/rotas.js:40:35
+      7  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      7   29.2%          JS: ^<anonymous> /app/src/rotas.js:151:41
+      7  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      6   25.0%          JS: ^<anonymous> /app/src/rotas.js:53:39
+      6  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      4   16.7%          JS: ^<anonymous> /app/src/rotas.js:167:52
+      4  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     24   23.5%        JS: *<anonymous> /app/src/rotas.js:53:39
+     24  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     12   11.8%        JS: *<anonymous> /app/src/rotas.js:62:47
+     12  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     10    9.8%        JS: *<anonymous> /app/src/rotas.js:111:34
+     10  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      3    2.9%        JS: *<anonymous> /app/src/rotas.js:167:52
+      3  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     11    9.7%      JS: ^json /app/node_modules/express/lib/response.js:250:25
+      7   63.6%        JS: ^res.json /app/src/server.js:10:14
+      4   57.1%          JS: ^<anonymous> /app/src/rotas.js:53:39
+      4  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2   28.6%          JS: ^<anonymous> /app/src/rotas.js:167:52
+      2  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1   14.3%          JS: ^<anonymous> /app/src/rotas.js:151:41
+      1  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      4   36.4%        JS: *<anonymous> /app/src/rotas.js:62:47
+      4  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+    105    1.9%    JS: *writeOrBuffer node:internal/streams/writable:546:23
+     34   32.4%      JS: *_write node:internal/streams/writable:451:16
+     34  100.0%        JS: *value node:internal/console/constructor:277:20
+     33   97.1%          JS: *log node:internal/console/constructor:384:6
+     15   45.5%            JS: *res.json /app/src/server.js:10:14
+      6   18.2%            JS: *<anonymous> /app/src/rotas.js:111:34
+      4   12.1%            JS: ^res.json /app/src/server.js:10:14
+      4   12.1%            JS: *<anonymous> /app/src/rotas.js:53:39
+      3    9.1%            JS: *<anonymous> /app/src/rotas.js:62:47
+      1    3.0%            JS: *<anonymous> /app/src/rotas.js:167:52
+      1    2.9%          JS: ^log node:internal/console/constructor:384:6
+      1  100.0%            JS: ^res.json /app/src/server.js:10:14
+     34   32.4%      JS: *Writable.write node:internal/streams/writable:502:36
+     27   79.4%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+     23   85.2%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+     20   87.0%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+      3   13.0%            JS: ^query /app/node_modules/pg/lib/client.js:510:8
+      4   14.8%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      4  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      4   11.8%        JS: ^value node:internal/console/constructor:277:20
+      4  100.0%          JS: ^log node:internal/console/constructor:384:6
+      4  100.0%            JS: ^res.json /app/src/server.js:10:14
+      2    5.9%        JS: ^_flushOutput node:_http_outgoing:1154:63
+      1   50.0%          JS: ^_writeRaw node:_http_outgoing:380:19
+      1  100.0%            JS: ^_send node:_http_outgoing:354:49
+      1   50.0%          JS: *write_ node:_http_outgoing:894:16
+      1  100.0%            JS: ^end node:_http_outgoing:1030:45
+      1    2.9%        JS: ^_send /app/node_modules/pg/lib/connection.js:144:8
+      1  100.0%          JS: ^parse /app/node_modules/pg/lib/connection.js:156:8
+      1  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+     32   30.5%      JS: *_send /app/node_modules/pg/lib/connection.js:144:8
+     20   62.5%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+     18   90.0%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+     17   94.4%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+      1    5.6%            JS: ^query /app/node_modules/pg/lib/client.js:510:8
+      2   10.0%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      2  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      6   18.8%        JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      5   83.3%          JS: *query /app/node_modules/pg/lib/client.js:510:8
+      5  100.0%            JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+      1   16.7%          JS: ^query /app/node_modules/pg/lib/client.js:510:8
+      1  100.0%            JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+      2    6.3%        JS: ^parse /app/node_modules/pg/lib/connection.js:156:8
+      2  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      2  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1    3.1%        JS: ^execute /app/node_modules/pg/lib/connection.js:166:10
+      1  100.0%          JS: ^_getRows /app/node_modules/pg/lib/query.js:179:11
+      1  100.0%            JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      1    3.1%        JS: ^describe /app/node_modules/pg/lib/connection.js:205:11
+      1  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      1  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1    3.1%        JS: ^bind /app/node_modules/pg/lib/connection.js:161:7
+      1  100.0%          JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      1  100.0%            JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1    3.1%        JS: *_getRows /app/node_modules/pg/lib/query.js:179:11
+      1  100.0%          JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+      1  100.0%            JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      4    3.8%      JS: *_getRows /app/node_modules/pg/lib/query.js:179:11
+      3   75.0%        JS: *prepare /app/node_modules/pg/lib/query.js:195:10
+      2   66.7%          JS: *_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      2  100.0%            JS: *query /app/node_modules/pg/lib/client.js:510:8
+      1   33.3%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+      1   25.0%        JS: ^prepare /app/node_modules/pg/lib/query.js:195:10
+      1  100.0%          JS: ^submit /app/node_modules/pg/lib/query.js:152:9
+      1  100.0%            JS: ^_pulseQueryQueue /app/node_modules/pg/lib/client.js:488:19
+     97    1.8%    JS: *entitytag /app/node_modules/etag/index.js:39:20
+     97  100.0%      JS: *send /app/node_modules/express/lib/response.js:111:25
+     97  100.0%        JS: *json /app/node_modules/express/lib/response.js:250:25
+     26   26.8%          JS: *res.json /app/src/server.js:10:14
+     10   38.5%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      8   30.8%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      5   19.2%            JS: ^<anonymous> /app/src/rotas.js:53:39
+      1    3.8%            JS: ^<anonymous> /app/src/rotas.js:202:50
+      1    3.8%            JS: ^<anonymous> /app/src/rotas.js:167:52
+      1    3.8%            JS: ^<anonymous> /app/src/rotas.js:111:34
+     24   24.7%          JS: ^res.json /app/src/server.js:10:14
+     11   45.8%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      8   33.3%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      4   16.7%            JS: ^<anonymous> /app/src/rotas.js:167:52
+      1    4.2%            JS: ^<anonymous> /app/src/rotas.js:53:39
+     17   17.5%          JS: *<anonymous> /app/src/rotas.js:111:34
+     17  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     16   16.5%          JS: *<anonymous> /app/src/rotas.js:62:47
+     16  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     12   12.4%          JS: *<anonymous> /app/src/rotas.js:53:39
+     12  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2    2.1%          JS: *<anonymous> /app/src/rotas.js:167:52
+      2  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     97    1.8%    JS: *end node:_http_outgoing:1030:45
+     97  100.0%      JS: *send /app/node_modules/express/lib/response.js:111:25
+     94   96.9%        JS: *json /app/node_modules/express/lib/response.js:250:25
+     26   27.7%          JS: *<anonymous> /app/src/rotas.js:62:47
+     26  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     25   26.6%          JS: ^res.json /app/src/server.js:10:14
+     12   48.0%            JS: ^<anonymous> /app/src/rotas.js:40:35
+     10   40.0%            JS: ^<anonymous> /app/src/rotas.js:167:52
+      3   12.0%            JS: ^<anonymous> /app/src/rotas.js:151:41
+     20   21.3%          JS: *<anonymous> /app/src/rotas.js:53:39
+     20  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     11   11.7%          JS: *res.json /app/src/server.js:10:14
+      6   54.5%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      4   36.4%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      1    9.1%            JS: ^<anonymous> /app/src/rotas.js:202:50
+     11   11.7%          JS: *<anonymous> /app/src/rotas.js:111:34
+     11  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    1.1%          JS: *<anonymous> /app/src/rotas.js:167:52
+      1  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      3    3.1%        JS: ^json /app/node_modules/express/lib/response.js:250:25
+      3  100.0%          JS: ^res.json /app/src/server.js:10:14
+      1   33.3%            JS: ^<anonymous> /app/src/rotas.js:53:39
+      1   33.3%            JS: ^<anonymous> /app/src/rotas.js:202:50
+      1   33.3%            JS: ^<anonymous> /app/src/rotas.js:167:52
+     92    1.7%    JS: *_storeHeader node:_http_outgoing:410:22
+     70   76.1%      JS: *write_ node:_http_outgoing:894:16
+     62   88.6%        JS: *end node:_http_outgoing:1030:45
+     62  100.0%          JS: *send /app/node_modules/express/lib/response.js:111:25
+     62  100.0%            JS: *json /app/node_modules/express/lib/response.js:250:25
+      8   11.4%        JS: ^end node:_http_outgoing:1030:45
+      8  100.0%          JS: *send /app/node_modules/express/lib/response.js:111:25
+      8  100.0%            JS: *json /app/node_modules/express/lib/response.js:250:25
+     15   16.3%      JS: *writeHead node:_http_server:341:19
+     15  100.0%        JS: ^_implicitHeader node:_http_server:336:68
+     15  100.0%          JS: ^write_ node:_http_outgoing:894:16
+     11   73.3%            JS: ^end node:_http_outgoing:1030:45
+      4   26.7%            JS: *end node:_http_outgoing:1030:45
+      7    7.6%      JS: ^writeHead node:_http_server:341:19
+      7  100.0%        JS: ^_implicitHeader node:_http_server:336:68
+      7  100.0%          JS: ^write_ node:_http_outgoing:894:16
+      7  100.0%            JS: ^end node:_http_outgoing:1030:45
+     86    1.6%    JS: ^res.json /app/src/server.js:10:14
+     18   20.9%      JS: ^<anonymous> /app/src/rotas.js:40:35
+     17   94.4%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    5.6%        JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+     17   19.8%      JS: ^<anonymous> /app/src/rotas.js:151:41
+     17  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     16   18.6%      JS: ^<anonymous> /app/src/rotas.js:111:34
+     15   93.8%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    6.3%        JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+     12   14.0%      JS: ^<anonymous> /app/src/rotas.js:53:39
+     11   91.7%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    8.3%        JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+     11   12.8%      JS: ^<anonymous> /app/src/rotas.js:167:52
+     11  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      8    9.3%      JS: ^<anonymous> /app/src/rotas.js:62:47
+      6   75.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2   25.0%        JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+      2    2.3%      JS: ~<anonymous> /app/src/rotas.js:202:50
+      2  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2    2.3%      JS: ^<anonymous> /app/src/rotas.js:202:50
+      2  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     86    1.6%    JS: *next /app/node_modules/express/lib/router/index.js:177:16
+     73   84.9%      JS: *handle /app/node_modules/express/lib/router/index.js:136:31
+     50   68.5%        JS: *router /app/node_modules/express/lib/router/index.js:46:18
+     50  100.0%          JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+     50  100.0%            JS: *next /app/node_modules/express/lib/router/index.js:177:16
+     13   17.8%        JS: ^router /app/node_modules/express/lib/router/index.js:46:18
+      9   69.2%          JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      9  100.0%            JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      4   30.8%          JS: *handle /app/node_modules/express/lib/router/layer.js:86:49
+      4  100.0%            JS: ^trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      7    9.6%        JS: *app /app/node_modules/express/lib/express.js:38:21
+      7  100.0%          JS: *parserOnIncoming node:_http_server:1028:26
+      7  100.0%            JS: *parserOnHeadersComplete node:_http_common:71:33
+      2    2.7%        JS: *handle /app/node_modules/express/lib/application.js:165:29
+      2  100.0%          JS: ^app /app/node_modules/express/lib/express.js:38:21
+      2  100.0%            JS: *emit node:events:466:44
+      1    1.4%        JS: ^handle /app/node_modules/express/lib/application.js:165:29
+      1  100.0%          JS: ^app /app/node_modules/express/lib/express.js:38:21
+      1  100.0%            JS: *emit node:events:466:44
+      4    4.7%      JS: *query /app/node_modules/express/lib/middleware/query.js:39:24
+      4  100.0%        JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      4  100.0%          JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      4  100.0%            JS: *handle /app/node_modules/express/lib/router/index.js:136:31
+      3    3.5%      JS: *expressInit /app/node_modules/express/lib/middleware/init.js:29:30
+      3  100.0%        JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      3  100.0%          JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      3  100.0%            JS: *query /app/node_modules/express/lib/middleware/query.js:39:24
+      3    3.5%      JS: *<anonymous> /app/src/server.js:7:9
+      3  100.0%        JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      3  100.0%          JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      3  100.0%            JS: *expressInit /app/node_modules/express/lib/middleware/init.js:29:30
+      2    2.3%      JS: ^expressInit /app/node_modules/express/lib/middleware/init.js:29:30
+      2  100.0%        JS: *handle /app/node_modules/express/lib/router/layer.js:86:49
+      2  100.0%          JS: ^trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+      2  100.0%            JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      1    1.2%      JS: ^handle /app/node_modules/express/lib/router/index.js:136:31
+      1  100.0%        JS: ^handle /app/node_modules/express/lib/application.js:165:29
+      1  100.0%          JS: ^app /app/node_modules/express/lib/express.js:38:21
+      1  100.0%            JS: *emit node:events:466:44
+     82    1.5%    JS: *<anonymous> /app/src/rotas.js:62:47
+     80   97.6%      JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      2    2.4%      JS: *<anonymous> /app/src/rotas.js:23:10
+      2  100.0%        JS: *dispatch /app/node_modules/express/lib/router/route.js:101:45
+      1   50.0%          JS: *param /app/node_modules/express/lib/router/index.js:359:17
+      1  100.0%            JS: *param /app/node_modules/express/lib/router/index.js:359:17
+      1   50.0%          JS: *handle /app/node_modules/express/lib/router/layer.js:86:49
+      1  100.0%            JS: ^<anonymous> /app/node_modules/express/lib/router/index.js:280:64
+     75    1.4%    JS: *setCharset /app/node_modules/express/lib/utils.js:246:41
+     74   98.7%      JS: *send /app/node_modules/express/lib/response.js:111:25
+     62   83.8%        JS: *json /app/node_modules/express/lib/response.js:250:25
+     16   25.8%          JS: ^res.json /app/src/server.js:10:14
+      8   50.0%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      7   43.8%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      1    6.3%            JS: ^<anonymous> /app/src/rotas.js:202:50
+     14   22.6%          JS: *res.json /app/src/server.js:10:14
+      5   35.7%            JS: ^<anonymous> /app/src/rotas.js:53:39
+      4   28.6%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      4   28.6%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      1    7.1%            JS: ^<anonymous> /app/src/rotas.js:167:52
+     12   19.4%          JS: *<anonymous> /app/src/rotas.js:53:39
+     12  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     11   17.7%          JS: *<anonymous> /app/src/rotas.js:62:47
+     11  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      9   14.5%          JS: *<anonymous> /app/src/rotas.js:111:34
+      9  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     12   16.2%        JS: ^json /app/node_modules/express/lib/response.js:250:25
+     10   83.3%          JS: ^res.json /app/src/server.js:10:14
+      5   50.0%            JS: ^<anonymous> /app/src/rotas.js:53:39
+      2   20.0%            JS: ^<anonymous> /app/src/rotas.js:40:35
+      1   10.0%            JS: ^<anonymous> /app/src/rotas.js:202:50
+      1   10.0%            JS: ^<anonymous> /app/src/rotas.js:167:52
+      1   10.0%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      1    8.3%          JS: *res.json /app/src/server.js:10:14
+      1  100.0%            JS: ^<anonymous> /app/src/rotas.js:151:41
+      1    8.3%          JS: *<anonymous> /app/src/rotas.js:62:47
+      1  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    1.3%      JS: ^send /app/node_modules/express/lib/response.js:111:25
+      1  100.0%        JS: ^json /app/node_modules/express/lib/response.js:250:25
+      1  100.0%          JS: ^res.json /app/src/server.js:10:14
+      1  100.0%            JS: ^<anonymous> /app/src/rotas.js:53:39
+     75    1.4%    JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+     59   78.7%      JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     59  100.0%        JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     48   81.4%          JS: *onStreamRead node:internal/stream_base_commons:168:22
+     11   18.6%          JS: *Readable.push node:internal/streams/readable:385:35
+     11  100.0%            JS: ^onStreamRead node:internal/stream_base_commons:168:22
+     16   21.3%      JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      8   50.0%        JS: *emit node:events:466:44
+      8  100.0%          JS: ^addChunk node:internal/streams/readable:548:18
+      8  100.0%            JS: ^readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      7   43.8%        JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      7  100.0%          JS: *Readable.push node:internal/streams/readable:385:35
+      7  100.0%            JS: ^onStreamRead node:internal/stream_base_commons:168:22
+      1    6.3%        JS: ^emit node:events:466:44
+      1  100.0%          JS: ^addChunk node:internal/streams/readable:548:18
+      1  100.0%            JS: ^readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     75    1.4%    JS: *emit node:events:466:44
+     57   76.0%      JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+     45   78.9%        JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     45  100.0%          JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     33   73.3%            JS: *onStreamRead node:internal/stream_base_commons:168:22
+     12   26.7%            JS: *Readable.push node:internal/streams/readable:385:35
+     12   21.1%        JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      7   58.3%          JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      7  100.0%            JS: *Readable.push node:internal/streams/readable:385:35
+      5   41.7%          JS: *emit node:events:466:44
+      5  100.0%            JS: ^addChunk node:internal/streams/readable:548:18
+      5    6.7%      JS: ^parserOnIncoming node:_http_server:1028:26
+      3   60.0%        JS: ^parserOnHeadersComplete node:_http_common:71:33
+      2   40.0%        JS: *parserOnHeadersComplete node:_http_common:71:33
+      5    6.7%      JS: ^onFinish node:_http_outgoing:1025:18
+      5  100.0%        JS: *callback node:internal/streams/writable:762:63
+      5  100.0%          JS: *afterWriteTick node:internal/streams/writable:691:24
+      5  100.0%            JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      3    4.0%      JS: ^addChunk node:internal/streams/readable:548:18
+      3  100.0%        JS: ^readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      3  100.0%          JS: ^Readable.push node:internal/streams/readable:385:35
+      3  100.0%            JS: ^onStreamRead node:internal/stream_base_commons:168:22
+      3    4.0%      JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+      3  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      1    1.3%      JS: ^emitReadable_ node:internal/streams/readable:828:23
+      1  100.0%        JS: ^processTicksAndRejections node:internal/process/task_queues:67:35
+      1    1.3%      JS: ^emitCloseNT node:internal/streams/destroy:132:21
+      1  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     72    1.3%    JS: *addListener node:events:610:58
+     56   77.8%      JS: *clearIncoming node:_http_server:955:23
+     42   75.0%        JS: *resOnFinish node:_http_server:968:21
+     42  100.0%          JS: *onFinish node:_http_outgoing:1025:18
+     41   97.6%            JS: *callback node:internal/streams/writable:762:63
+      1    2.4%            JS: ^callback node:internal/streams/writable:762:63
+     14   25.0%        JS: ^resOnFinish node:_http_server:968:21
+     10   71.4%          JS: *onFinish node:_http_outgoing:1025:18
+     10  100.0%            JS: *callback node:internal/streams/writable:762:63
+      4   28.6%          JS: *emit node:events:466:44
+      4  100.0%            JS: ^onFinish node:_http_outgoing:1025:18
+      8   11.1%      JS: *_release /app/node_modules/pg-pool/index.js:384:11
+      4   50.0%        JS: *_handleReadyForQuery /app/node_modules/pg/lib/client.js:292:23
+      4  100.0%          JS: *emit node:events:466:44
+      4  100.0%            JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+      2   25.0%        JS: *<anonymous> /app/node_modules/pg-pool/index.js:467:36
+      2  100.0%          JS: ^handleReadyForQuery /app/node_modules/pg/lib/query.js:136:22
+      2  100.0%            JS: ^_handleReadyForQuery /app/node_modules/pg/lib/client.js:292:23
+      1   12.5%        JS: *handleReadyForQuery /app/node_modules/pg/lib/query.js:136:22
+      1  100.0%          JS: ^_handleReadyForQuery /app/node_modules/pg/lib/client.js:292:23
+      1  100.0%            JS: *emit node:events:466:44
+      1   12.5%        JS: *<anonymous> /app/node_modules/pg-pool/index.js:372:12
+      1  100.0%          JS: ^<anonymous> /app/node_modules/pg-pool/index.js:467:36
+      1  100.0%            JS: ^handleReadyForQuery /app/node_modules/pg/lib/query.js:136:22
+      7    9.7%      JS: ^Readable.on node:internal/streams/readable:1125:33
+      3   42.9%        JS: *resOnFinish node:_http_server:968:21
+      3  100.0%          JS: *emit node:events:466:44
+      3  100.0%            JS: ^onFinish node:_http_outgoing:1025:18
+      2   28.6%        JS: *assignSocket node:_http_server:281:62
+      1   50.0%          JS: ^parserOnIncoming node:_http_server:1028:26
+      1  100.0%            JS: ^parserOnHeadersComplete node:_http_common:71:33
+      1   50.0%          JS: *parserOnIncoming node:_http_server:1028:26
+      1  100.0%            JS: *parserOnHeadersComplete node:_http_common:71:33
+      1   14.3%        JS: ^clearIncoming node:_http_server:955:23
+      1  100.0%          JS: ^resOnFinish node:_http_server:968:21
+      1  100.0%            JS: *emit node:events:466:44
+      1   14.3%        JS: *once node:events:652:44
+      1  100.0%          JS: ^value node:internal/console/constructor:277:20
+      1  100.0%            JS: ^log node:internal/console/constructor:384:6
+      1    1.4%      JS: *_pulseQueue /app/node_modules/pg-pool/index.js:127:14
+      1  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     66    1.2%    JS: *<anonymous> /app/src/rotas.js:111:34
+     61   92.4%      JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+      4    6.1%      JS: *<anonymous> /app/src/rotas.js:23:10
+      4  100.0%        JS: *dispatch /app/node_modules/express/lib/router/route.js:101:45
+      4  100.0%          JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      4  100.0%            JS: *handle /app/node_modules/express/lib/router/index.js:136:31
+      1    1.5%      JS: ^<anonymous> /app/src/rotas.js:23:10
+      1  100.0%        JS: *dispatch /app/node_modules/express/lib/router/route.js:101:45
+      1  100.0%          JS: *next /app/node_modules/express/lib/router/index.js:177:16
+      1  100.0%            JS: *handle /app/node_modules/express/lib/router/index.js:136:31
+     64    1.2%    JS: *_handleRowDescription /app/node_modules/pg/lib/client.js:359:24
+     62   96.9%      JS: *emit node:events:466:44
+     62  100.0%        JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+     62  100.0%          JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     62  100.0%            JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      2    3.1%      JS: *<anonymous> /app/node_modules/pg/lib/connection.js:111:19
+      2  100.0%        JS: ^parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+      2  100.0%          JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      2  100.0%            JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     62    1.1%    JS: *clearIncoming node:_http_server:955:23
+     30   48.4%      JS: *resOnFinish node:_http_server:968:21
+     30  100.0%        JS: *onFinish node:_http_outgoing:1025:18
+     28   93.3%          JS: *callback node:internal/streams/writable:762:63
+     28  100.0%            JS: *afterWriteTick node:internal/streams/writable:691:24
+      2    6.7%          JS: ^callback node:internal/streams/writable:762:63
+      2  100.0%            JS: *afterWriteTick node:internal/streams/writable:691:24
+     15   24.2%      JS: *endReadableNT node:internal/streams/readable:1690:23
+     15  100.0%        JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     13   21.0%      JS: ^resOnFinish node:_http_server:968:21
+      7   53.8%        JS: *onFinish node:_http_outgoing:1025:18
+      7  100.0%          JS: *callback node:internal/streams/writable:762:63
+      7  100.0%            JS: *afterWriteTick node:internal/streams/writable:691:24
+      6   46.2%        JS: *emit node:events:466:44
+      6  100.0%          JS: ^onFinish node:_http_outgoing:1025:18
+      6  100.0%            JS: *callback node:internal/streams/writable:762:63
+      4    6.5%      JS: *emit node:events:466:44
+      4  100.0%        JS: ^endReadableNT node:internal/streams/readable:1690:23
+      4  100.0%          JS: *processTicksAndRejections node:internal/process/task_queues:67:35
+     59    1.1%    JS: *parseDataRowMessage /app/node_modules/pg-protocol/dist/parser.js:228:29
+     57   96.6%      JS: *parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+     41   71.9%        JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     41  100.0%          JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     28   68.3%            JS: *onStreamRead node:internal/stream_base_commons:168:22
+     13   31.7%            JS: *Readable.push node:internal/streams/readable:385:35
+     16   28.1%        JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+     11   68.8%          JS: *emit node:events:466:44
+     11  100.0%            JS: ^addChunk node:internal/streams/readable:548:18
+      5   31.3%          JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+      5  100.0%            JS: *Readable.push node:internal/streams/readable:385:35
+      2    3.4%      JS: *handlePacket /app/node_modules/pg-protocol/dist/parser.js:91:17
+      2  100.0%        JS: ^parse /app/node_modules/pg-protocol/dist/parser.js:26:10
+      1   50.0%          JS: ^<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      1  100.0%            JS: ^emit node:events:466:44
+      1   50.0%          JS: *<anonymous> /app/node_modules/pg-protocol/dist/index.js:12:23
+      1  100.0%            JS: *readableAddChunkPushByteMode node:internal/streams/readable:461:38
+     59    1.1%    JS: *expressInit /app/node_modules/express/lib/middleware/init.js:29:30
+     59  100.0%      JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+     59  100.0%        JS: *next /app/node_modules/express/lib/router/index.js:177:16
+     59  100.0%          JS: *query /app/node_modules/express/lib/middleware/query.js:39:24
+     59  100.0%            JS: *trim_prefix /app/node_modules/express/lib/router/index.js:293:23
+

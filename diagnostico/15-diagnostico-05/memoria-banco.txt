@@ -1,0 +1,20 @@
+memory.max: 536870912
+memory.current: 243941376
+memory.peak: 283680768
+anon 48472064
+file 180158464
+shmem 152514560
+file_mapped 148402176
+inactive_anon 62369792
+active_anon 138604544
+inactive_file 12611584
+active_file 15032320
+### parametros de memoria do PostgreSQL
+effective_cache_size = 524288 8kB
+maintenance_work_mem = 65536 kB
+max_connections = 100
+shared_buffers = 16384 8kB
+work_mem = 4096 kB
+### conexoes abertas no banco
+active 1
+idle 20

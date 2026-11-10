@@ -1,0 +1,35 @@
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=23923.69..25637.53 rows=729 width=60) (actual time=14.218..20.151 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   Buffers: shared hit=17954 read=378
+   ->  Gather Merge  (cost=23923.69..25458.25 rows=13176 width=24) (actual time=13.651..18.879 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=17954 read=378
+         ->  Sort  (cost=22923.67..22937.39 rows=5490 width=24) (actual time=10.210..10.380 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 490kB
+               Buffers: shared hit=17954 read=378
+               Worker 0:  Sort Method: quicksort  Memory: 291kB
+               Worker 1:  Sort Method: quicksort  Memory: 311kB
+               ->  Nested Loop  (cost=70.84..22582.66 rows=5490 width=24) (actual time=0.395..8.637 rows=4307 loops=3)
+                     Buffers: shared hit=17924 read=378
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=70.41..11603.65 rows=1830 width=12) (actual time=0.360..2.724 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=419
+                           Buffers: shared hit=626 read=374
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..69.31 rows=4889 width=0) (actual time=0.908..0.909 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                                 Buffers: shared hit=2 read=5
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..5.95 rows=4 width=12) (actual time=0.003..0.004 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+                           Buffers: shared hit=17298 read=4
+ Planning:
+   Buffers: shared hit=246 read=17
+ Planning Time: 0.952 ms
+ Execution Time: 20.360 ms
+(31 rows)
+
