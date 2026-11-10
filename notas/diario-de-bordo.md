@@ -46,7 +46,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 05: índice de expressão, medido 3 vezes na mesma sessão do 04; +18,7% req/s, p95 −35%, p99 +47% | `7114534`, `047abf3`, `aea7616` |
 | 2026-11-09 | Diagnóstico 03 (`pg_stat_statements` + EXPLAINs quentes): página de `/pedidos` = 46,7% do banco; prioridades revistas, P4b antes de `top-produtos` | `ac441de`, `d06ebb9` |
 | 2026-11-09 | Pré-teste do P4b: blocos temporários explicados (plano vira `Seq Scan`+Sort para `cancelado`/`pagina=15000`); reescrita "late row lookup" validada ociosa; hipótese do experimento 06 escrita antes da mudança | `77f0c15`, `4d78d1a` |
-| 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab` |
+| 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab`, `a39645d` |
+| 2026-11-09 | Pré-teste da visão materializada para `top-produtos` (equivalência linha a linha, `ROLLBACK`); hipótese do experimento 07 escrita antes da mudança | `diagnostico/09-top-produtos/`, este diário |
 
 ## Ambiente
 
@@ -743,6 +744,38 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Conclusão:** aplicada e medida, com ganho. A cauda de `pedidos-por-status` sumiu (p95 da rota −95%), a vazão subiu 28% e o p99 geral caiu 33%, sem recurso novo e sem mudar a resposta. O custo visível é o ciclo fechado empurrando a fila para os relatórios, que pioraram.
 - **Gargalo que apareceu depois:** os dois relatórios (P7 `top-produtos` ~38 s; P6c `vendas-por-dia` ~7 s com ~63 chamadas). Seguem as prioridades 2 e 3 do Diagnóstico 03.
 
+### 07-top-produtos-visao-materializada
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido** (ver [Uso de IA](#uso-de-ia)).
+- **Problema:** P7 (`top-produtos`): a cada chamada agrega todos os 1,5 milhão de itens. Diagnóstico 03: 21,3% do tempo do banco com só 2% da carga; no experimento 06 a rota tem mediana ~38 s e, com `vendas-por-dia`, decide o p95/p99.
+- **Situação atual (fato, `diagnostico/09-top-produtos/pre-teste.txt`, banco ocioso):** `Parallel Seq Scan` nos 1,5 milhão de itens + hash join com `pedidos` + agregação de 19.206 produtos, para devolver 10: **1.758,8 ms**. Nenhum índice evita ler todos os itens: o resultado depende de todos eles.
+- **Pré-teste (fato, mesmo arquivo; tudo dentro de transação com `ROLLBACK`, conferido no fim que nada ficou):**
+  - Construir a visão materializada com o resumo por produto (o custo de um `REFRESH` completo): **978,5 ms**, 19.206 linhas.
+  - **Equivalência:** a consulta atual e a nova devolvem as mesmas 19.206 linhas, e comparadas posição a posição (todas as colunas, não só as 50 primeiras) há **0 diferenças**.
+  - Nova consulta (`Index Scan` no índice `(receita_centavos DESC, produto_id)` + 10 ou 50 buscas em `produtos_pkey`): **0,103 ms** para limite 10 e para 50.
+  - Tamanho: 2.072 kB no total (visão + 2 índices).
+- **Hipótese:** pré-calcular o resumo por produto numa visão materializada (`banco/06-resumo-vendas-produto.sql`) e fazer a rota ler dela deve derrubar `top-produtos` de ~38 s para perto do tempo de fila de uma consulta trivial (centenas de ms), aumentar as req/s e reduzir o p99 geral, porque cada chamada deixa de ler 1,5 milhão de itens (~21% do tempo do banco no Diagnóstico 03), liberando CPU para as outras rotas.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN` da rota: `Index Scan` na visão, sem `Seq Scan` em `itens_pedido`.
+  - `top-produtos` cai de ~38 s para < 1 s sob carga.
+  - req/s sobe; p99 geral cai (hoje 20,2 s, decidido pelos relatórios).
+  - A cauda passa a ser só `vendas-por-dia` (que pelo ciclo fechado deve ser mais chamada; pode melhorar por ter menos concorrência pesada, ou piorar por ser mais chamada).
+  - O banco provavelmente sai do teto pela primeira vez ou chega perto (`top-produtos` era a consulta mais cara por chamada).
+- **O que derrubaria a hipótese:** a rota não usar a visão no plano, ou req/s e p99 sem mudança além da variação.
+- **Fonte da ideia:** F13 (PostgreSQL 16, 41.3 Materialized Views: acesso "often much faster than accessing the underlying tables", com dados que podem ficar desatualizados, e o próprio exemplo de resumo de vendas atualizado à noite) e F14 (`REFRESH MATERIALIZED VIEW ... CONCURRENTLY` exige um índice `UNIQUE` sem expressão nem `WHERE`, criado aqui em `produto_id`).
+- **Honestidade sobre os dados (registrar no artigo):** aqui os dados nunca mudam (a API só lê), então a visão nunca fica velha e o ganho medido é o melhor caso. Numa loja real o resumo precisaria ser atualizado: `REFRESH ... CONCURRENTLY` periódico (custo ~1 s de banco por refresh, medido acima; dados com atraso de até um intervalo) ou uma tabela mantida por gatilhos (sempre atual, mas cada `INSERT` em `itens_pedido` fica mais caro). A escolha depende de quanto atraso o negócio aceita no relatório. Isso não foi testado: vai para `proximos-testes.md`.
+- **Por que esta e não outra:** ver [Alternativas](#alternativas).
+- **Uma mudança lógica, dois arquivos:** a visão (`banco/`) e a consulta da rota (`api/`) não funcionam uma sem a outra; vão no mesmo commit.
+- **Cuidados de contrato:** a visão agrupa por `i.produto_id` em vez de `pr.id, pr.nome, pr.categoria`: equivalente, porque `produto_id` é `NOT NULL`, tem chave estrangeira para `produtos` e `pr.id` é chave primária (provado no pré-teste: 0 diferenças). As somas continuam `bigint` → `Number()` na rota. Mesmo desempate (`receita DESC, id`). Casos de erro (`limite=0`, `51`) intocados.
+- **Mudança:** `banco/06-resumo-vendas-produto.sql` + `api/src/rotas.js` (rota `top-produtos`) — commit `<preencher>`
+- **Custo esperado:** ~2 MB de disco; ~1 s a mais na criação do banco; nenhum serviço novo; custo de atualização em produção (não aparece aqui).
+- **Evidência a salvar:** `diagnostico/09-top-produtos/` com o `EXPLAIN (ANALYZE, BUFFERS)` real da rota e o tamanho da visão
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 06, pastas de 09/11 21:17–21:21 em [06-pedidos-late-lookup](#06-pedidos-late-lookup) (mesma sessão)
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -758,6 +791,8 @@ Por rota (mediana das medianas; chamadas por execução):
 | F10 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.7 Indexes on Expressions | https://www.postgresql.org/docs/16/indexes-expressional.html | 2026-11-09 | doc oficial | índices | "An index column need not be just a column of the underlying table, but can be a function or scalar expression computed from one or more columns of the table"; "Index expressions are relatively expensive to maintain [...] However, the index expressions are not recomputed during an indexed search"; "useful when retrieval speed is more important than insertion and update speed" |
 | F11 | Markus Winand | We need tool support for keyset pagination (use-the-index-luke.com, 2014, atualizado 2023) | https://use-the-index-luke.com/no-offset | 2026-11-09 | técnica primária (autor de referência em SQL/índices) | paginação | "Offset instructs the DBMS skip the first N results of a query. However, the database must still fetch these rows from the disk and bring them in order"; "big offsets impose a lot of work on the database"; recomenda o método "seek"/keyset ("even faster than offset" — afirmação sem números na página) |
 | F12 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 7.6 LIMIT and OFFSET | https://www.postgresql.org/docs/16/queries-limit.html | 2026-11-09 | doc oficial | paginação | "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient" |
+| F13 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 41.3 Materialized Views | https://www.postgresql.org/docs/16/rules-materializedviews.html | 2026-11-09 | doc oficial | dados derivados | "persist the results in a table-like form"; "access to the data stored in a materialized view is often much faster than accessing the underlying tables directly or through a view, the data is not always current; yet sometimes current data is not needed"; exemplo de resumo de vendas: "A job could be scheduled to update the statistics each night" |
+| F14 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, REFRESH MATERIALIZED VIEW | https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html | 2026-11-09 | doc oficial | dados derivados | "completely replaces the contents of a materialized view"; `CONCURRENTLY`: "Refresh the materialized view without locking out concurrent selects"; "only allowed if there is at least one UNIQUE index on the materialized view which uses only column names and includes all rows" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -771,6 +806,10 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P7 top-produtos | Visão materializada com resumo por produto + índice por receita | ~2 MB; ~1 s de banco por `REFRESH` | 1.758,8 → 0,1 ms ocioso (pré-teste) | médio: dados podem ficar velhos entre refreshes (aqui nunca mudam) | baixo/médio (um `.sql` + uma consulta) | **escolhida** (experimento 07) |
+| P7 top-produtos | Tabela de resumo mantida por gatilhos em `itens_pedido`/`pedidos` | ~2 MB; cada escrita de item/pedido atualiza o resumo | igual à visão na leitura, sempre atual | médio: lógica de gatilho (mudança de status, cancelamento) e contenção de escrita no mesmo produto | alto | descartada aqui: a API não escreve, não daria para medir o custo; fica em próximos testes |
+| P7 top-produtos | Cache na memória da API com tempo de expiração | memória da API | 1ª chamada lenta (~38 s sob carga), as seguintes instantâneas até expirar | baixo; cache por processo | baixo | descartada: com 2% da carga, cada expiração ainda gera uma chamada de 20–40 s que segura o p99 |
+| P7 top-produtos | Índice cobrindo `itens_pedido (pedido_id) INCLUDE (produto_id, quantidade, preco)` | ~40+ MB | evitaria ir à tabela, mas continua lendo 1,5 milhão de entradas | baixo | baixo | descartada: não muda a ordem de grandeza |
 | P4b página de `/pedidos` | "Late row lookup": subconsulta pega 20 `id` via `Index Only Scan`, `JOIN` busca as linhas inteiras | nenhum recurso novo | piores casos ociosos 131–993 ms → 22–73 ms (pré-teste) | baixo: mesma ordem total `(criado_em, id)`; `ORDER BY` repetido fora | baixo (SQL de uma rota) | **escolhida** (experimento 06) |
 | P4b página de `/pedidos` | Keyset/seek pagination (F11) | nenhum | melhor possível (nunca percorre as puladas) | **quebra o contrato**: a API expõe `pagina` numérica de acesso aleatório | — | descartada: impossível sem mudar a API |
 | P4b página de `/pedidos` | Índice cobrindo todas as colunas (`INCLUDE`) | ~duplica a tabela em disco | evita ir à tabela, mas ainda carrega linhas de ~299 bytes pelo índice | baixo | baixo | descartada: custo de espaço alto, ganho menor que o late lookup |
@@ -823,3 +862,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | Escreveu e rodou o `coletar.sh` do Diagnóstico 03, analisou o ranking e os EXPLAINs quentes, revisou a hipótese da cauda do experimento 05 e propôs as prioridades (P4b antes de `top-produtos`) | Saídas brutas em `diagnostico/07-ranking-apos-05/`; conferir números contra `ranking.txt` e `consultas-ociosas.txt` |
 | 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste do P4b (investigou os blocos temporários e comparou a reescrita), abriu F11 e F12 e redigiu a hipótese do experimento 06 com o SQL sugerido | Saída bruta em `diagnostico/08-pedidos-offset/pre-teste.txt`; conferir citações nos links; código validado pelo verificador de contrato |
 | 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 06, calculou medianas, faixas e variações por rota e escreveu a análise | Números copiados de `explain-depois.txt`, `pre-teste.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
+| 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 07 inteiro**: pré-teste com prova de equivalência, hipótese, `banco/06-resumo-vendas-produto.sql`, mudança na rota, recriação do banco, evidência, contrato, 3 medições e commits; abriu F13 e F14 | Revisar o código e o SQL; equivalência provada no pré-teste (0 diferenças em 19.206 linhas) e pelo verificador de contrato; números conferíveis nos arquivos |
