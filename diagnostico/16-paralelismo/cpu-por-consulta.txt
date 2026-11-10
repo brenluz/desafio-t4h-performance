@@ -1,0 +1,6 @@
+rodada=1 workers=2 execucoes=50 cpu_container_ms=1803 cpu_por_execucao_ms=36 tempo_total_ms=2089
+rodada=1 workers=0 execucoes=50 cpu_container_ms=765 cpu_por_execucao_ms=15 tempo_total_ms=1089
+rodada=2 workers=2 execucoes=50 cpu_container_ms=1942 cpu_por_execucao_ms=38 tempo_total_ms=2197
+rodada=2 workers=0 execucoes=50 cpu_container_ms=774 cpu_por_execucao_ms=15 tempo_total_ms=1171
+rodada=3 workers=2 execucoes=50 cpu_container_ms=1853 cpu_por_execucao_ms=37 tempo_total_ms=2146
+rodada=3 workers=0 execucoes=50 cpu_container_ms=742 cpu_por_execucao_ms=14 tempo_total_ms=1071

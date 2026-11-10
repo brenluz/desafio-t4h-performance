@@ -1,0 +1,461 @@
+ max_parallel_workers_per_gather 
+---------------------------------
+ 2
+(1 row)
+
+##### quais consultas das rotas planejam workers (padrao)
+--- cliente
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Index Scan using clientes_pkey on clientes  (cost=0.29..8.31 rows=1 width=60)
+   Index Cond: (id = 42)
+(2 rows)
+
+--- cliente-por-email
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Sort  (cost=8.45..8.45 rows=1 width=60)
+   Sort Key: id
+   ->  Index Scan using clientes_lower_email_idx on clientes  (cost=0.42..8.44 rows=1 width=60)
+         Index Cond: (lower(email) = 'cliente42@exemplo.com'::text)
+(4 rows)
+
+--- pedidos-do-cliente
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=71.94..71.98 rows=15 width=61)
+   Sort Key: p.criado_em DESC, p.id DESC, i.id
+   ->  Nested Loop Left Join  (cost=1.14..71.64 rows=15 width=61)
+         ->  Nested Loop Left Join  (cost=0.85..67.06 rows=15 width=34)
+               ->  Index Scan using pedidos_cliente_id_idx on pedidos p  (cost=0.42..24.51 rows=5 width=18)
+                     Index Cond: (cliente_id = 42)
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..8.48 rows=3 width=20)
+                     Index Cond: (pedido_id = p.id)
+         ->  Index Scan using produtos_pkey on produtos pr  (cost=0.29..0.31 rows=1 width=31)
+               Index Cond: (id = i.produto_id)
+(10 rows)
+
+--- pedidos-por-status (contagem)
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Result  (cost=1.05..1.06 rows=1 width=8)
+   InitPlan 1 (returns $0)
+     ->  Seq Scan on contagem_pedidos_status  (cost=0.00..1.05 rows=1 width=8)
+           Filter: (status = 'pago'::text)
+(4 rows)
+
+--- pedidos-por-status (pagina 1000 de pago)
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=951.89..951.94 rows=20 width=299)
+   Sort Key: p.criado_em DESC, p.id DESC
+   ->  Nested Loop  (cost=782.10..951.46 rows=20 width=299)
+         ->  Limit  (cost=781.68..782.46 rows=20 width=12)
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..11701.00 rows=299233 width=12)
+                     Index Cond: (status = 'pago'::text)
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299)
+               Index Cond: (id = pedidos.id)
+(8 rows)
+
+--- busca-produtos
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Limit  (cost=394.83..394.88 rows=20 width=44)
+   ->  Sort  (cost=394.83..404.93 rows=4040 width=44)
+         Sort Key: nome, id
+         ->  Bitmap Heap Scan on produtos  (cost=46.83..287.33 rows=4040 width=44)
+               Recheck Cond: (nome ~~* '%ergo%'::text)
+               ->  Bitmap Index Scan on produtos_nome_trgm_idx  (cost=0.00..45.82 rows=4040 width=0)
+                     Index Cond: (nome ~~* '%ergo%'::text)
+(7 rows)
+
+--- top-produtos
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.57..4.71 rows=10 width=60)
+   ->  Nested Loop  (cost=0.57..7950.10 rows=19206 width=60)
+         ->  Index Scan using resumo_vendas_produto_receita_idx on resumo_vendas_produto r  (cost=0.29..1104.34 rows=19206 width=20)
+         ->  Index Scan using produtos_pkey on produtos pr  (cost=0.29..0.36 rows=1 width=40)
+               Index Cond: (id = r.produto_id)
+(5 rows)
+
+--- vendas-por-dia
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24)
+         Workers Planned: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24)
+               Sort Key: ((p.criado_em)::date), p.id
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12)
+                           Index Cond: (pedido_id = p.id)
+(14 rows)
+
+##### vendas-por-dia: aquecendo o cache
+ count 
+-------
+     7
+(1 row)
+
+ count 
+-------
+     7
+(1 row)
+
+##### COM 2 workers (padrao), 7 execucoes
+SET
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=48.029..53.387 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   Buffers: shared hit=17420 read=912
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=47.525..52.180 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=17420 read=912
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=34.283..34.464 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 484kB
+               Buffers: shared hit=17420 read=912
+               Worker 0:  Sort Method: quicksort  Memory: 268kB
+               Worker 1:  Sort Method: quicksort  Memory: 436kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=17.880..32.365 rows=4307 loops=3)
+                     Buffers: shared hit=17390 read=912
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=17.789..18.998 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=408
+                           Buffers: shared hit=1000
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.813..0.813 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                                 Buffers: shared hit=7
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.008..0.009 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+                           Buffers: shared hit=16390 read=912
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.222 ms
+ Execution Time: 53.473 ms
+(31 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=9.726..14.971 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=9.321..13.922 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=5.921..6.088 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 572kB
+               Worker 0:  Sort Method: quicksort  Memory: 246kB
+               Worker 1:  Sort Method: quicksort  Memory: 274kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.375..4.584 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.357..1.151 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=542
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.911..0.911 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.002..0.002 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.215 ms
+ Execution Time: 15.101 ms
+(22 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=68.058..73.748 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=67.523..72.319 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=26.114..26.342 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 573kB
+               Worker 0:  Sort Method: quicksort  Memory: 254kB
+               Worker 1:  Sort Method: quicksort  Memory: 266kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.378..24.371 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.355..20.038 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=539
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.860..0.861 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.002..0.002 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.240 ms
+ Execution Time: 73.857 ms
+(22 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=9.831..14.154 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=9.435..13.143 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=5.716..5.878 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 586kB
+               Worker 0:  Sort Method: quicksort  Memory: 251kB
+               Worker 1:  Sort Method: quicksort  Memory: 255kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.386..4.386 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.355..1.082 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=556
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.870..0.870 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.224 ms
+ Execution Time: 14.254 ms
+(22 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=74.300..79.800 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=73.713..78.356 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=69.477..69.709 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 897kB
+               Worker 0:  Sort Method: quicksort  Memory: 146kB
+               Worker 1:  Sort Method: quicksort  Memory: 146kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.352..67.598 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.333..43.704 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=721
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.826..0.826 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.016..0.016 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.224 ms
+ Execution Time: 79.905 ms
+(22 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=10.412..14.578 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=10.019..13.566 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=5.786..5.938 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 604kB
+               Worker 0:  Sort Method: quicksort  Memory: 237kB
+               Worker 1:  Sort Method: quicksort  Memory: 251kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.482..4.574 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.461..1.214 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=577
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=1.191..1.191 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.314 ms
+ Execution Time: 14.618 ms
+(22 rows)
+
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=22751.60..24350.13 rows=728 width=60) (actual time=9.407..13.700 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Gather Merge  (cost=22751.60..24182.04 rows=12282 width=24) (actual time=9.016..12.685 rows=12922 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Sort  (cost=21751.58..21764.37 rows=5118 width=24) (actual time=5.482..5.641 rows=4307 loops=3)
+               Sort Key: ((p.criado_em)::date), p.id
+               Sort Method: quicksort  Memory: 602kB
+               Worker 0:  Sort Method: quicksort  Memory: 230kB
+               Worker 1:  Sort Method: quicksort  Memory: 261kB
+               ->  Nested Loop  (cost=67.37..21436.27 rows=5118 width=24) (actual time=0.349..4.312 rows=4307 loops=3)
+                     ->  Parallel Bitmap Heap Scan on pedidos p  (cost=66.95..11059.16 rows=1706 width=12) (actual time=0.332..1.074 rows=1437 loops=3)
+                           Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Filter: (status <> 'cancelado'::text)
+                           Rows Removed by Filter: 159
+                           Heap Blocks: exact=582
+                           ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.826..0.826 rows=4786 loops=1)
+                                 Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                           Index Cond: (pedido_id = p.id)
+ Planning Time: 0.226 ms
+ Execution Time: 13.734 ms
+(22 rows)
+
+##### SEM workers (0), 7 execucoes
+SET
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=73.764..75.308 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   Buffers: shared hit=18300
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=73.455..73.976 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         Buffers: shared hit=18300
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.309..68.454 rows=12922 loops=1)
+               Buffers: shared hit=18300
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.303..2.020 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     Buffers: shared hit=1000
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.192..0.193 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                           Buffers: shared hit=7
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+                     Buffers: shared hit=17300
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.218 ms
+ Execution Time: 75.544 ms
+(25 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=13.847..15.207 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=13.618..14.069 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.307..9.614 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.301..1.635 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.189..0.189 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.001 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.359 ms
+ Execution Time: 15.399 ms
+(17 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=14.532..15.864 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=14.299..14.741 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.309..10.169 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.304..1.733 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.193..0.193 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.001 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.226 ms
+ Execution Time: 16.051 ms
+(17 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=14.540..16.013 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=14.311..14.768 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.320..10.117 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.312..1.666 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.185..0.186 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.001 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.215 ms
+ Execution Time: 16.292 ms
+(17 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=14.893..17.074 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=14.564..15.273 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.312..10.014 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.306..1.753 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.214..0.215 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.001 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.255 ms
+ Execution Time: 17.322 ms
+(17 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=22.704..24.075 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=22.440..22.884 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.333..12.745 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.327..2.204 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.209..0.210 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.230 ms
+ Execution Time: 24.309 ms
+(17 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=36855.73..37054.52 rows=728 width=60) (actual time=17.353..18.679 rows=7 loops=1)
+   Group Key: ((p.criado_em)::date)
+   ->  Sort  (cost=36855.73..36886.43 rows=12282 width=24) (actual time=17.117..17.545 rows=12922 loops=1)
+         Sort Key: ((p.criado_em)::date), p.id
+         Sort Method: quicksort  Memory: 1091kB
+         ->  Nested Loop  (cost=67.37..36021.52 rows=12282 width=24) (actual time=0.382..12.436 rows=12922 loops=1)
+               ->  Bitmap Heap Scan on pedidos p  (cost=66.95..11118.87 rows=4094 width=12) (actual time=0.374..2.273 rows=4310 loops=1)
+                     Recheck Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+                     Filter: (status <> 'cancelado'::text)
+                     Rows Removed by Filter: 476
+                     Heap Blocks: exact=993
+                     ->  Bitmap Index Scan on pedidos_criado_em_dia_idx  (cost=0.00..65.92 rows=4550 width=0) (actual time=0.233..0.234 rows=4786 loops=1)
+                           Index Cond: (((criado_em)::date >= '2024-06-01'::date) AND ((criado_em)::date <= '2024-06-07'::date))
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i  (cost=0.43..6.05 rows=3 width=12) (actual time=0.001..0.002 rows=3 loops=4310)
+                     Index Cond: (pedido_id = p.id)
+ Planning Time: 0.280 ms
+ Execution Time: 18.899 ms
+(17 rows)
+
