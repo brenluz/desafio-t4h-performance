@@ -56,6 +56,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 09 (feito pelo Claude Code a pedido): agregação no SQL; +62% req/s, mediana −67%, API de 96% para ~20% da cota; banco de volta ao teto; achado do throttling de CPU (51% dos períodos) | `3da8e3e`, `adf386e`, `c9835b3`, `d4f8c22` |
 | 2026-11-09 | Pré-teste do índice de trigramas para a busca (consultas parametrizadas, equivalência, `ROLLBACK`); hipótese do experimento 10 escrita antes da mudança | `6b85ec8`, `5157d27` |
 | 2026-11-09 | Experimento 10 (feito pelo Claude Code a pedido): índice `pg_trgm`; +24% req/s, busca −67%; banco segue no teto | `0520020`, `668745f`, `d1f3c8f` |
+| 2026-11-09 | Pré-teste da contagem por status pré-calculada (equivalência inclusive para status sem pedidos, `ROLLBACK`); hipótese do experimento 11 escrita antes da mudança | `diagnostico/14-contagem-status/`, este diário |
 
 ## Ambiente
 
@@ -1142,6 +1143,33 @@ Throttling do banco (`cpu.stat` lido logo depois das medições, acumulado desde
 - **Conclusão:** aplicada e medida, com ganho: +24% de vazão e a rota de busca −67%, por um índice de 1,1 MB, com resultado provado igual. O banco continua no teto.
 - **Gargalo que apareceu depois:** `pedidos-por-status` (~392 ms, `count(*)` contando até 300 mil entradas) e `vendas-por-dia` (~802 ms, p99 ~3,4 s). Próximo: P5 (prioridade 3 do Diagnóstico 04).
 
+### 11-contagem-por-status
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Problema:** P5 (`/pedidos?status=`): a cada página a rota conta todos os pedidos do status. Mesmo com `Index Only Scan` (experimento 02) e `Heap Fetches: 0`, conta até 300 mil entradas por chamada. Diagnóstico 04: 27,0% do tempo do banco; experimento 10: rota com mediana ~392 ms, ~780 chamadas por execução. Prioridade 3 do Diagnóstico 04.
+- **Pré-teste (fato, `diagnostico/14-contagem-status/pre-teste.txt`; tudo dentro de transação com `ROLLBACK`, conferido que nada ficou; planos customizados como na API):**
+  - Hoje: `pago` **65,3 ms** (`Parallel Index Only Scan`, 300 mil entradas), `pendente` 5,8 ms.
+  - Construir a visão (custo de um `REFRESH` completo): **93,7 ms**, 4 linhas, 48 kB com o índice.
+  - Nova consulta (`coalesce((SELECT total FROM contagem_pedidos_status WHERE status = $1), 0)`): **0,039 ms** (`pago`) e 0,010 ms (`pendente`).
+  - **Equivalência:** para os 4 status e para um status sem pedidos (`perdido`), mesmo valor e mesmo tipo (`bigint`) dos dois lados. O `coalesce` existe para isso: o `count(*)` sempre devolve uma linha (0 quando não há pedidos); a visão não teria linha para um status sem pedidos e a rota quebraria em `contagem.total`.
+- **Hipótese:** pré-calcular a contagem por status numa visão materializada deve tirar do banco a contagem de até 300 mil entradas por página, reduzindo a mediana de `pedidos-por-status` e aumentando as req/s, porque essa consulta era ~27% do tempo do banco e o banco está no teto.
+- **Previsões que dá para conferir:**
+  - `pedidos-por-status` cai de ~392 ms para perto do degrau de ~100–200 ms (a rota ainda faz a consulta de página).
+  - req/s sobe; pelo experimento 10, o banco deve continuar no teto (a CPU liberada vira mais requisições).
+  - `vendas-por-dia` passa a ser, sozinha, a rota que decide p95 e p99.
+- **O que derrubaria a hipótese:** rota e req/s sem mudança além da variação.
+- **Fonte da ideia:** F13 e F14 (visões materializadas e `REFRESH ... CONCURRENTLY`, que exige o índice `UNIQUE` criado em `status`), as mesmas do experimento 07.
+- **Honestidade sobre os dados (mesma ressalva do experimento 07):** aqui os pedidos nunca mudam, então a contagem nunca fica velha. Numa loja real, cada pedido novo ou mudança de status alteraria a contagem: um `REFRESH` periódico (~94 ms de banco) deixaria o total da paginação atrasado até um intervalo; uma tabela de contadores mantida por gatilho ficaria sempre certa, mas cada `INSERT`/`UPDATE` em `pedidos` disputaria a mesma linha do status (gargalo de escrita). A escolha depende de quanto atraso o negócio aceita no "total" da paginação.
+- **Por que esta e não outra:** ver [Alternativas](#alternativas).
+- **Uma mudança lógica, dois arquivos:** `banco/09-contagem-pedidos-status.sql` + a consulta de contagem em `api/src/rotas.js` (rota `/pedidos`), no mesmo commit.
+- **Cuidados de contrato:** `total` continua `Number(...)` de um `bigint`; o `coalesce` mantém 0 para status sem pedidos; a validação de status (400) acontece antes, sem mudança; a consulta de página do experimento 06 não muda.
+- **Mudança:** commit `<preencher>`
+- **Custo esperado:** 48 kB; ~94 ms a mais na criação do banco; em produção, o custo e o atraso do `REFRESH` (não testado).
+- **Antes:** experimento 10, 3 pastas de 09/11 22:36–22:39 (mesma sessão).
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -1175,6 +1203,10 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P5 `count(*)` | Visão materializada com a contagem por status (4 linhas) | 48 kB; ~94 ms de banco por `REFRESH` | 65,3 → 0,04 ms ocioso (pré-teste) | médio: total pode ficar velho entre refreshes (aqui nunca muda) | baixo (um `.sql` + uma consulta) | **escolhida** (experimento 11) |
+| P5 `count(*)` | Tabela de contadores mantida por gatilho em `pedidos` | pequeno; cada escrita em `pedidos` atualiza um contador | igual na leitura, sempre certo | médio/alto: todas as escritas do mesmo status disputam a mesma linha | médio | descartada aqui: a API não escreve, não daria para medir o custo; fica em próximos testes |
+| P5 `count(*)` | Estimativa por estatística (`pg_class.reltuples` / `EXPLAIN`) | nenhum | instantânea | **quebra o contrato**: o total precisa ser exato | baixo | descartada |
+| P5 `count(*)` | Índices parciais por status | ~4 índices pequenos | ainda conta todas as entradas do status (só menores) | baixo | baixo | descartada: não muda a ordem de grandeza |
 | P9 busca | Índice GIN `pg_trgm` em `produtos.nome` | ~1,1 MB; escrita mais cara | 9,6–10,6 → 0,95–1,95 ms ocioso (pré-teste) | baixo: consulta igual, resultado provado igual | trivial (um `.sql`) | **escolhida** (experimento 10) |
 | P9 busca | Índice GiST `pg_trgm` | parecido | também atende `ILIKE` (F17) | baixo | trivial | não testado; a documentação remete a outra seção para a comparação GIN × GiST — fica como teste futuro |
 | P9 busca | Busca textual (`tsvector`/`tsquery`) | coluna/índice novo | rápida | **quebra o contrato**: casa palavras, não trechos (`lumin` não acharia "Luminaria") | médio | descartada |
@@ -1246,3 +1278,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 04**: script com profiler do V8 na API (compose à parte) + `pg_stat_statements` + volume de log por rota; interpretou o perfil e propôs as prioridades | Saídas brutas em `diagnostico/11-diagnostico-04/` (`perfil-api.txt`, `ranking.txt`, `log-api.txt`, `carga.txt`); o limite do perfil (símbolos C++ não resolvidos no Alpine) está registrado |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 09**: script de equivalência byte a byte do JSON em 735 janelas, hipótese, mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/12-vendas-sql/`; equivalência também conferida pelo verificador de contrato |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 10** (`pg_trgm`): pré-teste parametrizado com prova de equivalência, hipótese, alternativas, `.sql`, evidência, contrato, medições e commits; abriu F17 | Saídas brutas em `diagnostico/13-busca-trgm/`; números conferíveis nos arquivos |
+| 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 11** (contagem por status): pré-teste com equivalência, hipótese, alternativas, `.sql` + mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/14-contagem-status/`; números conferíveis nos arquivos |
