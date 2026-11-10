@@ -1,0 +1,36 @@
+##### rota top-produtos (limite 10)
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.57..4.71 rows=10 width=60) (actual time=0.045..0.151 rows=10 loops=1)
+   Buffers: shared hit=42
+   ->  Nested Loop  (cost=0.57..7950.10 rows=19206 width=60) (actual time=0.044..0.148 rows=10 loops=1)
+         Buffers: shared hit=42
+         ->  Index Scan using resumo_vendas_produto_receita_idx on resumo_vendas_produto r  (cost=0.29..1104.34 rows=19206 width=20) (actual time=0.020..0.053 rows=10 loops=1)
+               Buffers: shared hit=12
+         ->  Index Scan using produtos_pkey on produtos pr  (cost=0.29..0.36 rows=1 width=40) (actual time=0.008..0.008 rows=1 loops=10)
+               Index Cond: (id = r.produto_id)
+               Buffers: shared hit=30
+ Planning:
+   Buffers: shared hit=157
+ Planning Time: 0.681 ms
+ Execution Time: 0.193 ms
+(13 rows)
+
+##### rota top-produtos (limite 50)
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.57..21.27 rows=50 width=60) (actual time=0.047..0.194 rows=50 loops=1)
+   Buffers: shared hit=201
+   ->  Nested Loop  (cost=0.57..7950.10 rows=19206 width=60) (actual time=0.045..0.189 rows=50 loops=1)
+         Buffers: shared hit=201
+         ->  Index Scan using resumo_vendas_produto_receita_idx on resumo_vendas_produto r  (cost=0.29..1104.34 rows=19206 width=20) (actual time=0.022..0.103 rows=50 loops=1)
+               Buffers: shared hit=51
+         ->  Index Scan using produtos_pkey on produtos pr  (cost=0.29..0.36 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=50)
+               Index Cond: (id = r.produto_id)
+               Buffers: shared hit=150
+ Planning:
+   Buffers: shared hit=157
+ Planning Time: 0.730 ms
+ Execution Time: 0.236 ms
+(13 rows)
+

@@ -1,0 +1,21 @@
+               relname                |  total  
+--------------------------------------+---------
+ resumo_vendas_produto                | 2104 kB
+ resumo_vendas_produto_produto_id_idx | 440 kB
+ resumo_vendas_produto_receita_idx    | 608 kB
+(3 rows)
+
+             indexrelname             | pg_size_pretty 
+--------------------------------------+----------------
+ clientes_pkey                        | 2208 kB
+ itens_pedido_pedido_id_idx           | 21 MB
+ itens_pedido_pkey                    | 32 MB
+ pedidos_cliente_id_idx               | 5720 kB
+ pedidos_criado_em_dia_idx            | 3552 kB
+ pedidos_pkey                         | 11 MB
+ pedidos_status_criado_em_id_idx      | 21 MB
+ produtos_pkey                        | 456 kB
+ resumo_vendas_produto_produto_id_idx | 440 kB
+ resumo_vendas_produto_receita_idx    | 608 kB
+(10 rows)
+
