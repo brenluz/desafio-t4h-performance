@@ -45,7 +45,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Pré-teste dos índices para `vendas-por-dia` (com `ROLLBACK`); hipótese do experimento 05 escrita antes da mudança | `c22f6d3`, `194f9e4` |
 | 2026-11-09 | Experimento 05: índice de expressão, medido 3 vezes na mesma sessão do 04; +18,7% req/s, p95 −35%, p99 +47% | `7114534`, `047abf3`, `aea7616` |
 | 2026-11-09 | Diagnóstico 03 (`pg_stat_statements` + EXPLAINs quentes): página de `/pedidos` = 46,7% do banco; prioridades revistas, P4b antes de `top-produtos` | `ac441de`, `d06ebb9` |
-| 2026-11-09 | Pré-teste do P4b: blocos temporários explicados (plano vira `Seq Scan`+Sort para `cancelado`/`pagina=15000`); reescrita "late row lookup" validada ociosa; hipótese do experimento 06 escrita antes da mudança | `diagnostico/08-pedidos-offset/`, este diário |
+| 2026-11-09 | Pré-teste do P4b: blocos temporários explicados (plano vira `Seq Scan`+Sort para `cancelado`/`pagina=15000`); reescrita "late row lookup" validada ociosa; hipótese do experimento 06 escrita antes da mudança | `77f0c15`, `4d78d1a` |
+| 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab` |
 
 ## Ambiente
 
@@ -88,7 +89,7 @@ Dados de contexto (do mesmo arquivo): `pedidos` 500 mil linhas / 174 MB, `itens_
 | P1 | Só existem os índices de chave primária | `banco/01-estrutura.sql` | seção `indexes`; itens de um pedido = Seq Scan em 1,5 mi linhas, 252 ms; pedidos de um cliente = Seq Scan, 143 ms | Toda busca por `cliente_id`, `pedido_id`, `status`, `criado_em` lê a tabela inteira | chaves estrangeiras: resolvido no experimento 01; `status`/`criado_em`: pendente |
 | P2 | N+1 em `/clientes/:id/pedidos` (17 consultas por requisição para um cliente com 5 pedidos e 10 itens) | `api/src/rotas.js` (rota `/clientes/:id/pedidos`) | seção `queries per /clientes/42/pedidos` | Uma consulta por pedido e uma por item; com P1 vira 5 Seq Scans de `itens_pedido` por requisição | resolvido no experimento 03 (2 consultas por requisição) |
 | P3 | Uma conexão nova por consulta, sem pool | `api/src/db.js` | 50× conectar+consultar = 4,6 s; 50 consultas numa conexão = 0,28 s | Cada conexão cria um processo no Postgres. **Cuidado:** o teste usa `psql`, que soma o custo de iniciar o programa; medir melhor antes de citar | resolvido no experimento 04 (pool, −95% de conexões) |
-| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); experimento 06 planejado |
+| P4 | Paginação por status ordena tudo em disco e usa `OFFSET` até 19.980 | `/pedidos` | `external merge Disk: ~30 MB` por worker, 1.085 ms | Sem índice em `(status, criado_em, id)` e `work_mem` de 4 MB | parcial: `Sort` em disco resolvido no experimento 02 para os status grandes, mas o `OFFSET` ainda busca ~20 mil linhas inteiras da tabela por chamada (e `cancelado`/`pagina=15000` ainda ordenam em disco) — maior consumidor do banco (Diagnóstico 03: 46,7%); **resolvido no experimento 06** (late row lookup: p95 da rota 28 s → 1,5 s) |
 | P5 | `count(*)` por status a cada página | `/pedidos` | Seq Scan, 288 ms | Contagem recalculada a cada requisição | na prática resolvido: com o mapa de visibilidade preenchido, o `Index Only Scan` caiu para 42 ms quente e 2,5% do banco (Diagnóstico 03) |
 | P6 | `criado_em::date BETWEEN`, traz `observacoes` sem usar, agrega no Node | `/relatorios/vendas-por-dia` | Seq Scan nas duas tabelas grandes, 756 ms, 12.951 linhas enviadas à API | O cast impede índice em `criado_em`; colunas e linhas demais trafegam | scan resolvido no experimento 05 (índice de expressão, −71% na rota); restam o laço de itens e o transporte de ~12.900 linhas por chamada (Diagnóstico 03: 19,7%); agregação no SQL é a prioridade 3 |
 | P7 | `top-produtos` agrega todos os itens a cada chamada | `/relatorios/top-produtos` | 3.482 ms | Resultado só muda quando os dados mudam, mas é recalculado sempre | confirmado (Diagnóstico 03: 21,3%, 2.053 ms quente ocioso); prioridade 2, tabela derivada |
@@ -643,7 +644,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 ### 06-pedidos-late-lookup
 
-- **Status:** planejado (hipótese escrita antes da mudança)
+- **Status:** aplicada e medida — cauda de `pedidos-por-status` eliminada; ganho em vazão e p99; os relatórios pioraram (ciclo fechado)
 - **Problema:** P4b (página de `/pedidos`): 46,7% do tempo do banco no Diagnóstico 03, o maior consumidor isolado. Escolhido pelas prioridades revistas, na frente de `top-produtos` (21,3%).
 - **Situação atual (fatos, `diagnostico/07-ranking-apos-05/` e `diagnostico/08-pedidos-offset/pre-teste.txt`):**
   - O `SELECT *` com `OFFSET` busca da tabela as até 20.000 linhas inteiras (~299 bytes, com `observacoes`) que vai descartar: ~10.100 páginas (~79 MB) por chamada na média sob carga.
@@ -670,14 +671,77 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Fonte da ideia:** F11 (Winand: o banco precisa buscar e ordenar as linhas que o `OFFSET` vai pular — "big offsets impose a lot of work on the database"); F12 (PostgreSQL 7.6: "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient"). O "late row lookup" aplica a ideia mantendo a API: as linhas puladas são computadas só no índice, nunca na tabela.
 - **Por que esta e não outra:** ver [Alternativas](#alternativas). Keyset/seek (recomendação principal do F11) é impossível aqui sem quebrar o contrato: a API expõe `pagina` numérica de acesso aleatório.
 - **Cuidados de contrato:** `ORDER BY` repetido na consulta externa (o `JOIN` não garante ordem); a ordem `(criado_em DESC, id DESC)` é total (desempate por `id`), então as 20 linhas e a ordem são idênticas; página além do fim devolve `[]` como hoje (subconsulta vazia → join vazio; conferido no pré-teste do caso 299980, 0 linhas... conferir na prática pelo contrato); `count(*)` e o resto da rota não mudam.
-- **Mudança:** `api/src/rotas.js`, consulta de página de `/pedidos` — commit `<preencher>`
+- **Mudança:** `api/src/rotas.js`, consulta de página de `/pedidos`: `SELECT * ... LIMIT/OFFSET` virou subconsulta de `id` + `JOIN` pela chave primária, com o `ORDER BY` repetido fora — commit `77edbe6`. Evidência em `6deaaab` (commit medido). Observação: a IDE indentou o SQL com 2 espaços a mais que o resto do arquivo; só estilo.
 - **Custo esperado:** nenhum recurso novo; `OFFSET 0` ~16 ms mais lento ocioso (duas leituras de índice).
-- **Evidência a salvar:** `diagnostico/08-pedidos-offset/` com `EXPLAIN (ANALYZE, BUFFERS)` da consulta nova nos 4 status (offset 19980) e no caso 299980
-- **Contrato:** `<preencher>`
-- **Antes:** experimento 05 (pastas de 09/11 20:17–20:31 em [05-indice-vendas-por-dia](#05-indice-vendas-por-dia)), **se medido ainda nesta sessão**; senão, remedir o 05 antes
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência do plano (banco ocioso)
+
+`diagnostico/08-pedidos-offset/explain-depois.txt`: nos 4 status (OFFSET 19980) e no caso `pago` OFFSET 299980, o plano é sempre `Index Only Scan using pedidos_status_criado_em_id_idx` com `Heap Fetches: 0` + 20 × `Index Scan using pedidos_pkey`. Nenhum `Seq Scan`, nenhum `external merge`.
+
+| Caso (ocioso) | Antes (`pre-teste.txt`, consulta atual) | Depois (`explain-depois.txt`) |
+| --- | --- | --- |
+| `pago` OFFSET 19980 | 131,4 ms | 6,5 ms |
+| `entregue` OFFSET 19980 | 444,1 ms | 33,0 ms |
+| `cancelado` OFFSET 19980 | 618,9 ms (`Seq Scan` + `external merge`) | 25,1 ms |
+| `pendente` OFFSET 19980 | 229,6 ms (`Sort` em memória) | 5,8 ms |
+| `pago` OFFSET 299980 | 992,9 ms (`external merge` ~30 MB/worker) | 54,6 ms |
+
+#### Medição sob carga (09/11, mesma noite do experimento 05)
+
+- **Contrato:** mantido nas 3 execuções (`contrato.txt`), inclusive o caso `pagina=15000` (página vazia)
+- **Antes:** experimento 05, pastas de 09/11 20:17–20:31 em [05-indice-vendas-por-dia](#05-indice-vendas-por-dia). **Ressalva de sessão:** entre o 05 e o 06 o container do banco foi recriado duas vezes pelo `coletar.sh` do Diagnóstico 03 (sem `down -v`, mesmos dados); o cache voltou a esquentar com a carga do diagnóstico e o pré-teste. Não houve reinício da máquina, do Docker nem do WSL relatado.
+- **Depois:** commit `6deaaab`, pastas:
+  - [`resultados/20261109-211748-06-pedidos-late-lookup`](../resultados/20261109-211748-06-pedidos-late-lookup/resumo.txt)
+  - [`resultados/20261109-211938-06-pedidos-late-lookup`](../resultados/20261109-211938-06-pedidos-late-lookup/resumo.txt)
+  - [`resultados/20261109-212142-06-pedidos-late-lookup`](../resultados/20261109-212142-06-pedidos-late-lookup/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 211748 | 14.49 | 304.1 ms | 6855.3 ms | 19711.3 ms | 0.00% | 95.2% | 409.2 MiB | 21.8% | 81.7 MiB |
+| 211938 | 14.32 | 314.8 ms | 5690.0 ms | 20226.0 ms | 0.00% | 98.3% | 434.3 MiB | 21.4% | 64.9 MiB |
+| 212142 | 11.79 | 304.9 ms | 8765.5 ms | 26678.6 ms | 0.00% | 96.5% | 442.4 MiB | 19.4% | 78.7 MiB |
+| **Mediana** | **14.32** | **304.9 ms** | **6855.3 ms** | **20226.0 ms** | — | **96.5%** | **434.3 MiB** | **21.4%** | **78.7 MiB** |
+
+| Métrica (mediana das 3) | 05-indice-vendas-por-dia | 06-pedidos-late-lookup | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 11.19 | 14.32 | **+28%** (faixas 10,70–11,35 → 11,79–14,49, sem sobreposição; a 3ª execução ficou bem abaixo das outras duas) |
+| p99 geral | 30188.7 ms | 20226.0 ms | **−33%** (faixas 29,9–34,8 s → 19,7–26,7 s, sem sobreposição) |
+| p95 geral | 8445.2 ms | 6855.3 ms | −19% (faixas 7,2–9,6 s e 5,7–8,8 s **se sobrepõem**: melhora provável, não garantida) |
+| Mediana geral | 312.0 ms | 304.9 ms | ≈ igual |
+| Banco CPU média | 97.2% | 96.5% | ≈ no teto |
+| Banco mem média | 423.6 MiB | 434.3 MiB | +10,7 MiB |
+| API CPU média | 18.4% | 21.4% | +3,0 p.p. (mais req/s) |
+| API mem média | 48.0 MiB | 78.7 MiB | varia muito entre execuções (coleta de lixo do Node): não interpretar |
+
+Por rota (mediana das medianas; chamadas por execução):
+
+| Rota | Chamadas 05 → 06 | Mediana 05 | Mediana 06 | p95 05 → 06 |
+| --- | --- | --- | --- | --- |
+| `pedidos-por-status` | 97–105 → 116–142 | 1290.9 ms | 791.1 ms (−39%) | **28075.9 → 1532.9 ms (−95%)**; p99 40599.3 → 2259.8 ms |
+| `vendas-por-dia` | 48–53 → 59–67 | 3518.6 ms | 7154.4 ms (**+103%**) | 9615.7 → 16996.0 ms (+77%) |
+| `top-produtos` | 10–11 → 12–14 | 28646.2 ms | 37850.0 ms (+32%) | — |
+| `cliente-por-email` | | 714.7 ms | 794.2 ms (+11%) | |
+| `cliente` | | 95.2 ms | 97.2 ms | |
+| `pedidos-do-cliente` | | 204.7 ms | 209.1 ms | |
+| `busca-produtos` | | 304.2 ms | 305.8 ms | |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `Index Only Scan` + `Heap Fetches: 0`, sem `external merge`, em todos os status | confirmada (5,8–54,6 ms ocioso nos 5 casos) |
+| p95 da rota `pedidos-por-status` cai forte | confirmada: 28,1 s → 1,5 s (−95%) |
+| p99 geral cai | confirmada: −33% |
+| req/s sobe acima da deriva de ~10% | confirmada na mediana (+28%), mas a 3ª execução (11,79) ficou só ~5% acima da mediana do 05: variação alta entre execuções |
+| Blocos temporários somem | não medido sob carga (não houve novo ranking); no `EXPLAIN` não há `external merge` |
+| `top-produtos` pode piorar | confirmada: +32% |
+| (não previsto) | `vendas-por-dia` dobrou (+103%) |
+| Banco continua saturado | confirmada: 95,2–98,3% |
+
+**Por que `vendas-por-dia` dobrou (hipótese):** ciclo fechado de novo. Com `pedidos-por-status` rápida, os usuários liberados chamaram mais os dois relatórios (+31% em `vendas-por-dia`, +30% em `top-produtos`), que agora disputam o banco entre si quase sozinhos. `vendas-por-dia` ainda busca ~13 mil itens por chamada e manda ~12.900 linhas para a API; `top-produtos` lê 1,5 milhão de itens. Os dois juntos passam a decidir o p95 e o p99.
+
+- **Conclusão:** aplicada e medida, com ganho. A cauda de `pedidos-por-status` sumiu (p95 da rota −95%), a vazão subiu 28% e o p99 geral caiu 33%, sem recurso novo e sem mudar a resposta. O custo visível é o ciclo fechado empurrando a fila para os relatórios, que pioraram.
+- **Gargalo que apareceu depois:** os dois relatórios (P7 `top-produtos` ~38 s; P6c `vendas-por-dia` ~7 s com ~63 chamadas). Seguem as prioridades 2 e 3 do Diagnóstico 03.
 
 ## Fontes
 
@@ -758,3 +822,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 05, calculou medianas e variações (incluindo p99 e p95 por rota) e escreveu a análise | Números copiados de `explain-depois.txt`, `tamanho-indices.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
 | 2026-11-09 | Claude Code | Escreveu e rodou o `coletar.sh` do Diagnóstico 03, analisou o ranking e os EXPLAINs quentes, revisou a hipótese da cauda do experimento 05 e propôs as prioridades (P4b antes de `top-produtos`) | Saídas brutas em `diagnostico/07-ranking-apos-05/`; conferir números contra `ranking.txt` e `consultas-ociosas.txt` |
 | 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste do P4b (investigou os blocos temporários e comparou a reescrita), abriu F11 e F12 e redigiu a hipótese do experimento 06 com o SQL sugerido | Saída bruta em `diagnostico/08-pedidos-offset/pre-teste.txt`; conferir citações nos links; código validado pelo verificador de contrato |
+| 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 06, calculou medianas, faixas e variações por rota e escreveu a análise | Números copiados de `explain-depois.txt`, `pre-teste.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
