@@ -49,6 +49,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 06: late row lookup, medido 3 vezes na mesma noite do 05; p95 da rota −95%, +28% req/s, p99 −33%; relatórios pioraram | `77edbe6`, `6deaaab`, `a39645d` |
 | 2026-11-09 | Pré-teste da visão materializada para `top-produtos` (equivalência linha a linha, `ROLLBACK`); hipótese do experimento 07 escrita antes da mudança | `7fd5034`, `ec7d902` |
 | 2026-11-09 | Experimento 07 (feito pelo Claude Code a pedido): visão materializada; 2,7× req/s, p95 −80%, p99 −90%; mediana +26%; CPU da API e memória do banco perto do limite | `02fe13e`, `15eb4a4`, `a3ffd77` |
+| 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `diagnostico/10-email/`, este diário |
 
 ## Ambiente
 
@@ -838,6 +839,32 @@ Por rota (mediana das medianas; chamadas por execução):
 
 - **Conclusão:** aplicada e medida, com o maior ganho do desafio: 2,7× a vazão, p95 −80%, p99 −90%, por ~2 MB e uma consulta nova, com equivalência provada linha a linha. O ganho é o melhor caso, porque os dados nunca mudam aqui; em produção haveria o custo e o atraso do `REFRESH` (não testado). Em troca, a carga extra expôs três novos limites: `cliente-por-email` sem índice, CPU da API e memória do banco.
 - **Gargalo que apareceu depois:** P8 (e-mail, provável maior consumidor do banco agora), CPU da API (P12 log + P6c agregação em JS), memória do banco no limite. Recomendado um Diagnóstico 04 antes de escolher.
+- **Execução extra (feita pelo Breno):** [`resultados/20261109-214935-07-top-produtos-visao-materializada`](../resultados/20261109-214935-07-top-produtos-visao-materializada/resumo.txt), commit `22894c0` (mesmo código do `15eb4a4`, só documentação a mais): 38,95 req/s, p95 1.341,6 ms, p99 1.717,5 ms, contrato mantido. Coerente com as 3 execuções; não entra nas medianas acima (que usam as 3 do protocolo).
+
+### 08-indice-email
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Problema:** P8 (`/clientes?email=`): `lower(email) = lower($1)` sem índice que sirva → `Seq Scan` em 100 mil clientes a cada chamada. Decidido fazer antes do Diagnóstico 04 (escolha do Breno), com base na estimativa do experimento 07.
+- **Situação atual (fato, `diagnostico/10-email/pre-teste.txt`, banco ocioso):** `Seq Scan on clientes`, 99.999 linhas descartadas, **29,3 ms** (e-mail existente) e 29,6 ms (`CLIENTE3@EXEMPLO.COM`). No experimento 07 a rota foi chamada 320–345 vezes por execução: só esta consulta, ociosa, seria ~10 s de CPU do banco em 60 s; sob carga, mais.
+- **Pré-teste (fato, mesmo arquivo; índice criado dentro de transação com `ROLLBACK`, conferido que nada ficou):** `Index Scan using clientes_lower_email_idx` em 0,077 ms (existente), 0,043 ms (maiúsculas) e 0,036 ms (inexistente). Índice de **4.792 kB**. Não há e-mails repetidos em `lower(email)`.
+- **Hipótese:** criar o índice de expressão `clientes (lower(email))` deve derrubar `cliente-por-email` (~974 ms de mediana sob carga) e, ao tirar ~1/4 a 1/2 da CPU do banco, reduzir a mediana geral (que piorou 26% no experimento 07) e aumentar as req/s.
+- **Previsões que dá para conferir:**
+  - `EXPLAIN`: `Index Scan using clientes_lower_email_idx`.
+  - `cliente-por-email` cai para perto de `cliente` (~100 ms, também uma busca por índice).
+  - Mediana geral cai e as rotas rápidas (`cliente`, `busca-produtos`, `pedidos-do-cliente`) melhoram por esperarem menos.
+  - req/s sobe, mas **talvez pouco**: a API já está a ~89% da sua cota de CPU (44,6% de 50%); se o banco aliviar, a API pode virar o teto.
+  - CPU do banco cai abaixo dos ~87% do experimento 07.
+- **O que derrubaria a hipótese:** o plano sem o índice, ou rota e mediana geral sem mudança além da variação.
+- **Fonte da ideia:** F10 (PostgreSQL 16, 11.7): o próprio exemplo da documentação é este caso — "a common way to do case-insensitive comparisons is to use the lower function" e "CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1))". F15 (`citext`) como alternativa.
+- **Por que índice simples e não `UNIQUE`:** F10 diz que um índice `UNIQUE` em `lower()` impediria e-mails que diferem só em maiúsculas. Hoje não há repetidos, mas isso seria uma regra de negócio nova (e a rota devolve uma **lista**, prevendo vários clientes com o mesmo e-mail). Fora do escopo de desempenho.
+- **Cuidados de contrato:** consulta igual, só muda o plano; `ORDER BY id` continua.
+- **Mudança:** `banco/07-indice-clientes-email.sql` — commit `<preencher>`
+- **Custo esperado:** ~4,8 MB de índice; escrita em `clientes` mais lenta (não aparece aqui).
+- **Contrato:** `<preencher>`
+- **Antes:** experimento 07, 3 pastas de 21:36–21:39 em [07-top-produtos-visao-materializada](#07-top-produtos-visao-materializada) (mesma sessão)
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
 
 ## Fontes
 
@@ -856,6 +883,7 @@ Por rota (mediana das medianas; chamadas por execução):
 | F12 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 7.6 LIMIT and OFFSET | https://www.postgresql.org/docs/16/queries-limit.html | 2026-11-09 | doc oficial | paginação | "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient" |
 | F13 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 41.3 Materialized Views | https://www.postgresql.org/docs/16/rules-materializedviews.html | 2026-11-09 | doc oficial | dados derivados | "persist the results in a table-like form"; "access to the data stored in a materialized view is often much faster than accessing the underlying tables directly or through a view, the data is not always current; yet sometimes current data is not needed"; exemplo de resumo de vendas: "A job could be scheduled to update the statistics each night" |
 | F14 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, REFRESH MATERIALIZED VIEW | https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html | 2026-11-09 | doc oficial | dados derivados | "completely replaces the contents of a materialized view"; `CONCURRENTLY`: "Refresh the materialized view without locking out concurrent selects"; "only allowed if there is at least one UNIQUE index on the materialized view which uses only column names and includes all rows" |
+| F15 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, F.10 citext | https://www.postgresql.org/docs/16/citext.html | 2026-11-09 | doc oficial | índices | "The citext module provides a case-insensitive character string type, citext. Essentially, it internally calls lower when comparing values." (F10, mesma seção 11.7 já citada, também traz: "a common way to do case-insensitive comparisons is to use the lower function", o exemplo `CREATE INDEX test1_lower_col1_idx ON test1 (lower(col1))` e o aviso de que um índice `UNIQUE` assim "would prevent creation of rows whose col1 values differ only in case") |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -869,6 +897,10 @@ Para cada problema, as opções pesquisadas (o artigo precisa de pelo menos 3 nu
 | P2 N+1 | Consulta única com `JOIN` e agrupamento no Node | nenhum recurso novo | 2 idas ao banco por requisição | baixo: ordem e totais calculados como hoje | baixo | **escolhida** (experimento 03) |
 | P2 N+1 | Lote com `WHERE pedido_id = ANY($1)` e `WHERE id = ANY($1)` (estilo DataLoader, F5) | nenhum | 4 idas ao banco | baixo | baixo | descartada: uma ida a mais que o `JOIN`, mesmo ganho de fundo |
 | P2 N+1 | Montar o JSON no Postgres (`json_agg`) | nenhum | 2 idas; menos trabalho na API | médio: o Postgres formata `timestamp` diferente do `pg`/Node (`criado_em`), quebraria o contrato sem conversão | médio | descartada pelo risco ao contrato |
+| P8 e-mail | Índice de expressão `clientes (lower(email))` | ~4,8 MB | 29,3 → 0,08 ms ocioso (pré-teste) | quase nulo: consulta igual | trivial (um `.sql`) | **escolhida** (experimento 08) |
+| P8 e-mail | Índice `UNIQUE` em `lower(email)` | ~4,8 MB | igual | muda regra de negócio (proíbe e-mails iguais ignorando maiúsculas); a rota devolve lista | trivial | descartada: não é questão de desempenho |
+| P8 e-mail | Coluna `citext` (F15) + índice | migração da coluna | igual | médio: mexe na estrutura (`01-estrutura.sql` não pode mudar; exigiria `ALTER TABLE` em `.sql` novo) e na consulta | médio | descartada: mesmo ganho com mais mudança |
+| P8 e-mail | Guardar o e-mail já normalizado numa coluna nova | espaço + manter em sincronia | igual | médio: duplicação de dado | médio | descartada |
 | P7 top-produtos | Visão materializada com resumo por produto + índice por receita | ~2 MB; ~1 s de banco por `REFRESH` | 1.758,8 → 0,1 ms ocioso (pré-teste) | médio: dados podem ficar velhos entre refreshes (aqui nunca mudam) | baixo/médio (um `.sql` + uma consulta) | **escolhida** (experimento 07) |
 | P7 top-produtos | Tabela de resumo mantida por gatilhos em `itens_pedido`/`pedidos` | ~2 MB; cada escrita de item/pedido atualiza o resumo | igual à visão na leitura, sempre atual | médio: lógica de gatilho (mudança de status, cancelamento) e contenção de escrita no mesmo produto | alto | descartada aqui: a API não escreve, não daria para medir o custo; fica em próximos testes |
 | P7 top-produtos | Cache na memória da API com tempo de expiração | memória da API | 1ª chamada lenta (~38 s sob carga), as seguintes instantâneas até expirar | baixo; cache por processo | baixo | descartada: com 2% da carga, cada expiração ainda gera uma chamada de 20–40 s que segura o p99 |
@@ -926,3 +958,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | Escreveu e rodou o pré-teste do P4b (investigou os blocos temporários e comparou a reescrita), abriu F11 e F12 e redigiu a hipótese do experimento 06 com o SQL sugerido | Saída bruta em `diagnostico/08-pedidos-offset/pre-teste.txt`; conferir citações nos links; código validado pelo verificador de contrato |
 | 2026-11-09 | Claude Code | Leu a evidência e as 3 pastas do experimento 06, calculou medianas, faixas e variações por rota e escreveu a análise | Números copiados de `explain-depois.txt`, `pre-teste.txt`, `resumo.txt` e `recursos.txt`; conferir contra os arquivos |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 07 inteiro**: pré-teste com prova de equivalência, hipótese, `banco/06-resumo-vendas-produto.sql`, mudança na rota, recriação do banco, evidência, contrato, 3 medições e commits; abriu F13 e F14 | Revisar o código e o SQL; equivalência provada no pré-teste (0 diferenças em 19.206 linhas) e pelo verificador de contrato; números conferíveis nos arquivos |
+| 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 08** (índice de e-mail): pré-teste, hipótese, `.sql`, recriação do banco, evidência, contrato, medições e commits; abriu F15 e conferiu o exemplo de `lower()` em F10 | Saídas brutas em `diagnostico/10-email/`; números conferíveis nos arquivos |
