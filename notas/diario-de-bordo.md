@@ -61,6 +61,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Diagnóstico 05 (feito pelo Claude Code a pedido): `vendas-por-dia` = 85% do banco; throttling em 98,5% dos períodos na janela da carga; problema novo P13 (consultas paralelas num banco de 1 CPU); memória "no limite" era cache de arquivos | `df7a0cc`, `cb43270` |
 | 2026-11-09 | Pré-teste do P13: só `vendas-por-dia` usa workers; com 2 workers cada execução gasta ~2,5× mais CPU do container; hipótese do experimento 12 escrita antes da mudança | `9a5879b`, `43ad538` |
 | 2026-11-09 | Experimento 12 (feito pelo Claude Code a pedido): `max_parallel_workers_per_gather=0`; +64% req/s, p95 −35%, p99 −40%; rotas baratas de ~93 para ~11 ms | `0b947c2`, `9742069`, `c43014b` |
+| 2026-11-09 | `proximos-testes.md` criado (7 ideias, inclusive o resumo por dia que não foi feito) | `6afb2e9` |
+| 2026-11-09 | Diagnóstico 06 (feito pelo Claude Code a pedido): `vendas-por-dia` = 81% do banco; P14 (troca de plano em 5 de 725 janelas, 5,5× mais CPU), P15 (4.300 visitas à tabela de itens por chamada), P16 (`shared_buffers` menor que os dados quentes) | `diagnostico/17-diagnostico-06/` |
 
 ## Ambiente
 
@@ -275,6 +277,34 @@ Evidência: [`diagnostico/15-diagnostico-05/`](../diagnostico/15-diagnostico-05/
 | 2 | **P13 (novo):** consultas paralelas num banco de 1 CPU | plano com 2 workers; 98,5% dos períodos com throttling | testar `max_parallel_workers_per_gather = 0` — **resolvido no experimento 12** (+64% req/s) |
 | 3 | P12: log com corpo inteiro | 11 MB/min; escrita em stream no topo do perfil | só se a API voltar a ser gargalo |
 | — | Memória do banco | decomposição do cgroup | **não é problema** (era cache de arquivos); registrado como correção |
+
+## Diagnóstico 06: o que sobrou depois do experimento 12
+
+Feito pelo Claude Code a pedido do Breno ("rodar mais um diagnóstico para ver se acha problemas"). Evidência: [`diagnostico/17-diagnostico-06/`](../diagnostico/17-diagnostico-06/).
+
+**Método:** igual ao Diagnóstico 05, com três cuidados novos. (1) Um compose à parte próprio (`docker-compose.pg-stat.yml` desta pasta) que **repete** `max_parallel_workers_per_gather=0`, para a coleta não religar o paralelismo (conferido em `config.txt`: 0 durante e depois). (2) `pg_stat_reset()` logo antes da carga, para medir o uso de índices, as varreduras por tabela e o acerto de cache **só durante os 60 s**. (3) Os planos de `vendas-por-dia` foram verificados para as 725 janelas da carga. Carga da coleta: 229,41 req/s (igual ao experimento 12). Tudo devolvido ao normal no fim.
+
+### Fatos
+
+- **Ranking (`ranking.txt`):** `vendas-por-dia` = **81,3%** do tempo do banco (1.125 chamadas, 379,5 ms de média sob carga, ~18 mil páginas de buffer lidas por chamada, das quais ~987 vindas de fora do `shared_buffers`); busca 8,3%; página de `/pedidos` 7,3%; o resto ≤ 1,5%.
+- **Throttling na janela da carga (`cpu-antes/depois.txt`):** banco 603 de 607 períodos (99,3%); API 16 de 620 (2,6%). A API usou ~15,5 s de CPU em ~61 s: ~51% da sua cota de 0,5 CPU.
+- **Uso de índices durante a carga (`tabelas-indices.txt`):** `itens_pedido_pedido_id_idx` teve **4,86 milhões** de buscas em 60 s (≈ 4.300 por chamada de `vendas-por-dia`: uma busca por pedido do período). Sem uso: `itens_pedido_pkey` (chave primária original, 32 MB; mantida, é parte da estrutura) e o índice único da contagem por status (só existe para o `REFRESH CONCURRENTLY`).
+- **Varreduras sequenciais (`tabelas-indices.txt`):** `itens_pedido` teve **6 varreduras completas** (9 milhões de linhas lidas) durante a carga, sem que nenhuma consulta "normal" devesse fazer isso.
+- **Origem das 6 varreduras (`planos-vendas.txt`):** planejando as 725 janelas que a carga sorteia, **720** usam o plano esperado (`Nested Loop` + `Index Scan using itens_pedido_pedido_id_idx`) e **5** (ex.: 2024-05-03 a 2024-05-09) usam `Hash Join` + **`Seq Scan on itens_pedido`** (1,5 milhão de linhas).
+- **Custo desse plano (`plano-alternativo.txt`, mesma janela, cache quente):** plano escolhido 180–244 ms e **122 ms de CPU do container por execução**; o mesmo filtro com `Nested Loop` (forçado só na sessão) 16–94 ms e **22 ms de CPU** (~5,5× menos). Estimativa do planejador: 5.093 pedidos e 15.279 linhas; reais 4.310 e 12.929.
+- **Acerto de cache durante a carga:** 94,32% (20,4 mi de leituras no `shared_buffers`, **1,23 mi** de fora; ~1,11 mi delas de `vendas-por-dia`). `shared_buffers` está no padrão de 128 MB; só `pedidos` (174 MB) e `itens_pedido` (107 MB) já passam disso.
+- **API (`log-api.txt`, `perfil-api.txt`):** 17,1 MB de log em 60 s; escrita em stream (`writeOrBuffer`) segue no topo do perfil.
+
+### Problemas novos e hipóteses
+
+| ID | Problema | Evidência | Hipótese de causa | Ideia |
+| --- | --- | --- | --- | --- |
+| P14 | Em 5 de 725 janelas, `vendas-por-dia` troca para `Seq Scan` em 1,5 mi de itens | `planos-vendas.txt`, `plano-alternativo.txt` | O modelo de custo do planejador supõe disco (`random_page_cost = 4`, padrão) e superestima as linhas, então acha a varredura completa mais barata que 5 mil buscas por índice; aqui os dados ficam em cache | `random_page_cost` menor (configuração), conferindo os planos das 7 rotas |
+| P15 | `vendas-por-dia` visita ~4.300 vezes a tabela `itens_pedido` por chamada | 4,86 mi buscas no índice; ~18 mil páginas por chamada | O índice só aponta para a linha; a quantidade e o preço precisam ser lidos na tabela | índice que cubra as colunas (`(pedido_id) INCLUDE (quantidade, preco_unitario_centavos)`) para permitir `Index Only Scan` |
+| P16 | `shared_buffers` (128 MB) menor que o conjunto de dados quente | 94,3% de acerto; 1,23 mi páginas de fora em 60 s | Páginas lidas do cache do sistema operacional custam CPU a cada cópia, num banco no teto de CPU | aumentar `shared_buffers` (custo: memória que não pode ser liberada; hoje ~190 MiB de 512 usados, Diagnóstico 05) |
+| P12 | Log com corpo inteiro | 17 MB/min; API a ~51% da cota | — | segue de baixa prioridade; se o banco ficar bem mais rápido, a API pode virar o teto |
+
+**Impacto relativo (estimativa a partir dos fatos acima, não medição):** P14 atinge ~0,7% das chamadas de `vendas-por-dia` (6 de ~1.125 no minuto): ~6 × 122 ms ≈ 0,7 s de CPU por minuto, ~1% da CPU do banco; deve explicar parte do p99 da rota (~0,9 s). P15 e P16 atingem **todas** as chamadas da consulta que é 81% do banco. Ordem sugerida: pré-testar P15 primeiro, depois P14 e P16.
 
 ## Experimentos
 
@@ -1474,3 +1504,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 11** (contagem por status): pré-teste com equivalência, hipótese, alternativas, `.sql` + mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/14-contagem-status/`; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 05**: throttling medido só na janela da carga, decomposição da memória do banco (incluindo um teste recriando o banco), ranking, perfil da API; corrigiu a leitura de "risco de memória" dos experimentos 07 e 11 e propôs P13 | Saídas brutas em `diagnostico/15-diagnostico-05/` |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 12** (sem paralelismo): pré-teste de planos e de CPU por consulta via cgroup, hipótese, mudança no compose, evidência, contrato, medições e commits; abriu F18 e F19 | Saídas brutas em `diagnostico/16-paralelismo/`; números conferíveis nos arquivos |
+| 2026-11-09 | Claude Code | A pedido, escreveu o rascunho de `proximos-testes.md` (7 fichas, só com números de pré-testes/diagnósticos) e fez o Diagnóstico 06 (compose que preserva o experimento 12, estatísticas zeradas antes da carga, planos das 725 janelas, custo do plano alternativo) | Revisar as fichas; saídas brutas em `diagnostico/17-diagnostico-06/` |
