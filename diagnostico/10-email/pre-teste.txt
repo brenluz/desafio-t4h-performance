@@ -1,0 +1,98 @@
+##### ATUAL: cliente42@exemplo.com
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2678.41..2679.66 rows=500 width=60) (actual time=28.959..28.961 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=1159
+   ->  Seq Scan on clientes  (cost=0.00..2656.00 rows=500 width=60) (actual time=0.048..28.919 rows=1 loops=1)
+         Filter: (lower(email) = 'cliente42@exemplo.com'::text)
+         Rows Removed by Filter: 99999
+         Buffers: shared hit=1156
+ Planning:
+   Buffers: shared hit=74 read=7
+ Planning Time: 2.057 ms
+ Execution Time: 29.346 ms
+(12 rows)
+
+##### ATUAL: CLIENTE3@EXEMPLO.COM
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2678.41..2679.66 rows=500 width=60) (actual time=29.574..29.576 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=1156
+   ->  Seq Scan on clientes  (cost=0.00..2656.00 rows=500 width=60) (actual time=0.010..29.568 rows=1 loops=1)
+         Filter: (lower(email) = 'cliente3@exemplo.com'::text)
+         Rows Removed by Filter: 99999
+         Buffers: shared hit=1156
+ Planning Time: 0.140 ms
+ Execution Time: 29.594 ms
+(10 rows)
+
+BEGIN
+CREATE INDEX
+ANALYZE
+##### COM INDICE: cliente42@exemplo.com
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8.45..8.45 rows=1 width=60) (actual time=0.049..0.050 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=1 read=3
+   ->  Index Scan using clientes_lower_email_idx on clientes  (cost=0.42..8.44 rows=1 width=60) (actual time=0.044..0.045 rows=1 loops=1)
+         Index Cond: (lower(email) = 'cliente42@exemplo.com'::text)
+         Buffers: shared hit=1 read=3
+ Planning:
+   Buffers: shared hit=20 read=1
+ Planning Time: 0.606 ms
+ Execution Time: 0.077 ms
+(11 rows)
+
+##### COM INDICE: CLIENTE3@EXEMPLO.COM
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8.45..8.45 rows=1 width=60) (actual time=0.030..0.030 rows=1 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=3 read=1
+   ->  Index Scan using clientes_lower_email_idx on clientes  (cost=0.42..8.44 rows=1 width=60) (actual time=0.027..0.028 rows=1 loops=1)
+         Index Cond: (lower(email) = 'cliente3@exemplo.com'::text)
+         Buffers: shared hit=3 read=1
+ Planning Time: 0.042 ms
+ Execution Time: 0.043 ms
+(9 rows)
+
+##### COM INDICE: ninguem@exemplo.com
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8.45..8.45 rows=1 width=60) (actual time=0.029..0.029 rows=0 loops=1)
+   Sort Key: id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=1 read=2
+   ->  Index Scan using clientes_lower_email_idx on clientes  (cost=0.42..8.44 rows=1 width=60) (actual time=0.027..0.028 rows=0 loops=1)
+         Index Cond: (lower(email) = 'ninguem@exemplo.com'::text)
+         Buffers: shared hit=1 read=2
+ Planning Time: 0.036 ms
+ Execution Time: 0.036 ms
+(9 rows)
+
+##### tamanho do indice
+ pg_size_pretty 
+----------------
+ 4792 kB
+(1 row)
+
+##### e-mails duplicados em lower(email)? (define se o indice poderia ser UNIQUE)
+ emails_repetidos 
+------------------
+                0
+(1 row)
+
+ROLLBACK
+##### confere que nada ficou (esperado 0)
+ count 
+-------
+     0
+(1 row)
+
