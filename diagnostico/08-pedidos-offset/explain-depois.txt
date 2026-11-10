@@ -1,0 +1,115 @@
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=951.93..951.98 rows=20 width=299) (actual time=6.369..6.371 rows=20 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC
+   Sort Method: quicksort  Memory: 31kB
+   Buffers: shared hit=188
+   ->  Nested Loop  (cost=782.14..951.50 rows=20 width=299) (actual time=4.786..6.308 rows=20 loops=1)
+         Buffers: shared hit=182
+         ->  Limit  (cost=781.72..782.50 rows=20 width=12) (actual time=4.700..4.714 rows=20 loops=1)
+               Buffers: shared hit=102
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..11751.17 rows=300500 width=12) (actual time=0.080..4.045 rows=20000 loops=1)
+                     Index Cond: (status = 'pago'::text)
+                     Heap Fetches: 0
+                     Buffers: shared hit=102
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299) (actual time=0.078..0.078 rows=1 loops=20)
+               Index Cond: (id = pedidos.id)
+               Buffers: shared hit=80
+ Planning:
+   Buffers: shared hit=237
+ Planning Time: 1.565 ms
+ Execution Time: 6.464 ms
+(19 rows)
+
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=952.48..952.53 rows=20 width=299) (actual time=32.929..32.933 rows=20 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC
+   Sort Method: quicksort  Memory: 31kB
+   Buffers: shared hit=188 read=22
+   ->  Nested Loop  (cost=782.69..952.05 rows=20 width=299) (actual time=6.980..32.806 rows=20 loops=1)
+         Buffers: shared hit=182 read=22
+         ->  Limit  (cost=782.26..783.05 rows=20 width=12) (actual time=3.647..3.681 rows=20 loops=1)
+               Buffers: shared hit=124
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..4870.30 rows=124450 width=12) (actual time=0.134..3.012 rows=20000 loops=1)
+                     Index Cond: (status = 'entregue'::text)
+                     Heap Fetches: 0
+                     Buffers: shared hit=124
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299) (actual time=1.453..1.453 rows=1 loops=20)
+               Index Cond: (id = pedidos.id)
+               Buffers: shared hit=58 read=22
+ Planning:
+   Buffers: shared hit=237
+ Planning Time: 0.969 ms
+ Execution Time: 32.988 ms
+(19 rows)
+
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=952.87..952.92 rows=20 width=299) (actual time=25.055..25.059 rows=20 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC
+   Sort Method: quicksort  Memory: 31kB
+   Buffers: shared hit=192 read=18
+   ->  Nested Loop  (cost=783.08..952.44 rows=20 width=299) (actual time=5.766..24.980 rows=20 loops=1)
+         Buffers: shared hit=186 read=18
+         ->  Limit  (cost=782.65..783.44 rows=20 width=12) (actual time=3.345..3.375 rows=20 loops=1)
+               Buffers: shared hit=124
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..1953.37 rows=49883 width=12) (actual time=0.068..2.696 rows=20000 loops=1)
+                     Index Cond: (status = 'cancelado'::text)
+                     Heap Fetches: 0
+                     Buffers: shared hit=124
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299) (actual time=1.077..1.077 rows=1 loops=20)
+               Index Cond: (id = pedidos.id)
+               Buffers: shared hit=62 read=18
+ Planning:
+   Buffers: shared hit=237
+ Planning Time: 1.050 ms
+ Execution Time: 25.117 ms
+(19 rows)
+
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=952.17..952.22 rows=20 width=299) (actual time=5.754..5.758 rows=20 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC
+   Sort Method: quicksort  Memory: 31kB
+   Buffers: shared hit=210
+   ->  Nested Loop  (cost=782.37..951.73 rows=20 width=299) (actual time=3.808..5.683 rows=20 loops=1)
+         Buffers: shared hit=204
+         ->  Limit  (cost=781.95..782.73 rows=20 width=12) (actual time=3.630..3.645 rows=20 loops=1)
+               Buffers: shared hit=124
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..984.85 rows=25167 width=12) (actual time=0.136..2.995 rows=20000 loops=1)
+                     Index Cond: (status = 'pendente'::text)
+                     Heap Fetches: 0
+                     Buffers: shared hit=124
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299) (actual time=0.100..0.100 rows=1 loops=20)
+               Index Cond: (id = pedidos.id)
+               Buffers: shared hit=80
+ Planning:
+   Buffers: shared hit=237
+ Planning Time: 0.983 ms
+ Execution Time: 5.816 ms
+(19 rows)
+
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=11901.05..11901.10 rows=20 width=299) (actual time=54.575..54.578 rows=20 loops=1)
+   Sort Key: p.criado_em DESC, p.id DESC
+   Sort Method: quicksort  Memory: 31kB
+   Buffers: shared hit=1568
+   ->  Nested Loop  (cost=11731.26..11900.62 rows=20 width=299) (actual time=54.027..54.525 rows=20 loops=1)
+         Buffers: shared hit=1562
+         ->  Limit  (cost=11730.84..11731.62 rows=20 width=12) (actual time=53.901..53.925 rows=20 loops=1)
+               Buffers: shared hit=1482
+               ->  Index Only Scan using pedidos_status_criado_em_id_idx on pedidos  (cost=0.42..11751.17 rows=300500 width=12) (actual time=0.048..44.204 rows=300000 loops=1)
+                     Index Cond: (status = 'pago'::text)
+                     Heap Fetches: 0
+                     Buffers: shared hit=1482
+         ->  Index Scan using pedidos_pkey on pedidos p  (cost=0.42..8.44 rows=1 width=299) (actual time=0.029..0.029 rows=1 loops=20)
+               Index Cond: (id = pedidos.id)
+               Buffers: shared hit=80
+ Planning:
+   Buffers: shared hit=237
+ Planning Time: 0.941 ms
+ Execution Time: 54.634 ms
+(19 rows)
+
