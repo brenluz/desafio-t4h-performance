@@ -51,7 +51,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 07 (feito pelo Claude Code a pedido): visão materializada; 2,7× req/s, p95 −80%, p99 −90%; mediana +26%; CPU da API e memória do banco perto do limite | `02fe13e`, `15eb4a4`, `a3ffd77` |
 | 2026-11-09 | Pré-teste do índice de e-mail (`ROLLBACK`); hipótese do experimento 08 escrita antes da mudança | `c5d1b6a`, `39a4993` |
 | 2026-11-09 | Experimento 08 (feito pelo Claude Code a pedido): índice de e-mail; +15,5% req/s, p95 −15%; banco a 63% de CPU, API a 96% da cota: gargalo passou para a API | `516c2ad`, `3dd7fa4`, `6d2aa5c` |
-| 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `diagnostico/11-diagnostico-04/` |
+| 2026-11-09 | Diagnóstico 04 (feito pelo Claude Code a pedido): profiler do V8 na API + `pg_stat_statements`; `vendas-por-dia` = ~99% das linhas que a API analisa e 39,3% do banco; busca e `count(*)` ~28% cada | `bd0a058`, `a527d2e` |
+| 2026-11-09 | Pré-teste de equivalência da agregação no SQL (735 janelas, 0 diferenças); hipótese do experimento 09 escrita antes da mudança | `diagnostico/12-vendas-sql/`, este diário |
 
 ## Ambiente
 
@@ -969,6 +970,30 @@ Por rota (mediana das medianas):
 - **Conclusão:** aplicada e medida, com ganho: +15,5% de vazão, p95 −15%, p99 −17% e a rota −80%, por um índice de 4,8 MB. O resultado mais importante é estrutural: **o banco deixou de ser o gargalo** (63% de CPU) e **a API passou a ser** (96% da cota).
 - **Gargalo que apareceu depois:** CPU da API. Diagnóstico 04 deve medir onde o processo Node gasta CPU.
 
+### 09-vendas-agregada-no-sql
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Problema:** P6c (`vendas-por-dia`): a rota traz ~12.900 linhas (pedido × item, com `criado_em` e `observacoes`) para somar por dia no Node. Diagnóstico 04: ≈ 99% das linhas que a API analisa (2,43 mi em 60 s), a maior parte da CPU da API (análise de linhas, `parseDate`, GC) e 39,3% do tempo do banco. Prioridade 1 do Diagnóstico 04.
+- **Pré-teste (fato, `diagnostico/12-vendas-sql/pre-teste.txt`; só leitura):**
+  - **Equivalência (`equivalencia.js`, rodado dentro do container da API — mesmo Node 20.18, mesmo `pg`, `TZ=UTC`):** para cada janela, roda a consulta atual + a agregação em JS copiada de `rotas.js`, e a consulta nova + a formatação nova, e compara o `JSON.stringify` dos dois. **735 janelas** (as 725 que a carga pode sortear, as 4 do contrato que devolvem 200, e 6 bordas: 31 dias, fora dos dados antes e depois, último dia, 29/02/2024), **5.160 dias, 0 diferenças**. Essas janelas, pelo caminho atual, levariam 9.529.464 linhas para a API.
+  - **Banco (2024-06-01 a 2024-06-07, ocioso):** atual 25,3 ms devolvendo 12.922 linhas; nova 20,0 ms devolvendo 7 (`GroupAggregate` sobre o mesmo `Bitmap Index Scan` do experimento 05, ordenação em memória de ~0,5 MB).
+- **Hipótese:** agregar no SQL (`GROUP BY` do dia, `count(DISTINCT p.id)`, `sum`) deve derrubar a CPU da API e o tempo de `vendas-por-dia`, aumentar as req/s e devolver às rotas baratas (`cliente`, `top-produtos`, `pedidos-do-cliente`) o tempo que perderam no experimento 08, porque a API deixa de analisar ~2,4 milhões de linhas por minuto (e de criar os `Date` e as strings de `observacoes` delas) e o banco deixa de enviá-las.
+- **Previsões que dá para conferir:**
+  - CPU da API cai bem abaixo dos 48,2% (96% da cota) do experimento 08.
+  - `vendas-por-dia` cai de ~970 ms para perto de uma consulta comum (centenas de ms ou menos).
+  - `cliente`, `top-produtos` e `pedidos-do-cliente` voltam para perto do experimento 07 (~100, ~130 e ~210 ms).
+  - req/s sobe; com a API aliviada, o banco deve voltar a ser o limite, puxado por `busca-produtos` e `count(*)` (prioridades 2 e 3).
+  - O tempo do banco nesta consulta muda pouco: a agregação passa a ser feita lá, mas sem enviar as linhas.
+- **O que derrubaria a hipótese:** CPU da API sem queda clara, ou req/s sem mudança além da variação.
+- **Fonte:** a ideia vem do Diagnóstico 04 (medição própria). Fonte externa a buscar na fase de pesquisa (ex.: documentação de agregação do PostgreSQL / custo de transferir linhas ao cliente).
+- **Cuidados de contrato (todos cobertos pela prova de equivalência):** `dia` sai como texto `'YYYY-MM-DD'` via `to_char` (um `date` cru viraria `Date` no Node e mudaria o JSON); `count`/`sum` voltam como `bigint` em texto e passam por `Number()`; ordem por dia crescente; dias sem venda continuam ausentes; só pedidos com itens contam (o `JOIN` interno é o mesmo); ordem dos campos `dia, pedidos, itens, receita_centavos`. Validação de datas e erros 400 intocados.
+- **Mudança:** `api/src/rotas.js`, rota `vendas-por-dia` — commit `<preencher>`
+- **Custo esperado:** um pouco mais de CPU no banco por chamada (agrupar e contar distintos), compensado por não serializar e enviar as linhas.
+- **Antes:** experimento 08, 3 pastas de 09/11 21:57–21:59. Entre eles houve o Diagnóstico 04 (containers recriados, sem `down -v`).
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -1063,3 +1088,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 07 inteiro**: pré-teste com prova de equivalência, hipótese, `banco/06-resumo-vendas-produto.sql`, mudança na rota, recriação do banco, evidência, contrato, 3 medições e commits; abriu F13 e F14 | Revisar o código e o SQL; equivalência provada no pré-teste (0 diferenças em 19.206 linhas) e pelo verificador de contrato; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 08** (índice de e-mail): pré-teste, hipótese, `.sql`, recriação do banco, evidência, contrato, medições e commits; abriu F15 e conferiu o exemplo de `lower()` em F10 | Saídas brutas em `diagnostico/10-email/`; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | **A pedido, fez o Diagnóstico 04**: script com profiler do V8 na API (compose à parte) + `pg_stat_statements` + volume de log por rota; interpretou o perfil e propôs as prioridades | Saídas brutas em `diagnostico/11-diagnostico-04/` (`perfil-api.txt`, `ranking.txt`, `log-api.txt`, `carga.txt`); o limite do perfil (símbolos C++ não resolvidos no Alpine) está registrado |
+| 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 09**: script de equivalência byte a byte do JSON em 735 janelas, hipótese, mudança na rota, evidência, contrato, medições e commits | Saídas brutas em `diagnostico/12-vendas-sql/`; equivalência também conferida pelo verificador de contrato |
