@@ -1,0 +1,1 @@
+ 725 janelas | exemplo 2024-01-01 2024-01-07 | plano: > GroupAggregate > Sort > Nested Loop > Bitmap Heap Scan on pedidos p > Bitmap Index Scan on pedidos_criado_em_dia_idx > Index Only Scan using itens_pedido_pedido_id_inclui_idx on itens_pedido i
