@@ -68,6 +68,7 @@ Regras que valem aqui também:
 | 2026-11-11 | Experimento 13 (feito pelo Claude Code a pedido): índice que cobre; +12,8% req/s, p95/p99 −16%, p99 de `vendas-por-dia` −45%; P14 resolvido junto (725/725 janelas com `Index Only Scan`) | `982f6c2`, `ded6504`, `6e10cd7` |
 | 2026-11-11 | Pré-teste de cache (128 MB): 95,6% de acerto, 89% das leituras de fora vêm da tabela `pedidos`; hipótese do experimento 14 escrita antes da mudança | diagnóstico e hipótese antes de `28c1ceb` |
 | 2026-11-11 | Experimento 14 (feito pelo Claude Code a pedido): `shared_buffers` 256 MB; acerto 99,89%; +36% req/s, p95 −41%, `vendas-por-dia` −46%; custo +152 MiB de memória fixa | `28c1ceb`, `ba50fd0`, `5e1f4ce` |
+| 2026-11-11 | Experimento 15 (feito pelo Claude Code a pedido): `shared_buffers` 192 MB; 257 req/s, 14% abaixo de 256 MB; configuração devolvida para 256 MB | `485ff12`, `5ab3293`, `43ad8d4` |
 
 ## Ambiente
 
@@ -1563,17 +1564,62 @@ Por rota (mediana das medianas):
 
 ### 15-shared-buffers-192mb
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido** (ideia 7 de `proximos-testes.md`, testada a pedido do Breno).
+- **Status:** aplicada, medida e **desfeita**: 192 MB rende claramente menos que 256 MB; a configuração voltou para 256 MB. **Implementado e medido pelo Claude Code a pedido** (ideia 7 de `proximos-testes.md`, testada a pedido do Breno).
 - **Pergunta:** o ganho do experimento 14 exige passar dos 40% que a documentação desaconselha (F21), ou 192 MB (37,5% de 512 MB) dão o mesmo com ~64 MiB a menos de memória fixa?
 - **Hipótese:** com 192 MB a tabela `pedidos` (174 MB) cabe no cache, mas não junto com todos os índices quentes (~45 MB do índice de itens, ~21 MB do índice por status, ~11 MB da chave de `pedidos`, entre outros); o acerto de cache deve ficar entre 95,6% e 99,89%, e as req/s abaixo das do experimento 14, mas bem acima das do 13. Se ficar dentro da variação do 14, 192 MB é a escolha melhor (mesmo ganho, menos memória).
 - **Previsões:** `SHOW shared_buffers` = 192MB; acerto entre os dois; req/s entre 219,74 (13) e 298,89 (14), mais perto do 14; `shmem` ~210 MiB.
 - **O que decide:** se as req/s ficarem na faixa do 14 (286,84–307,48), fica 192 MB; se caírem claramente, volta para 256 MB e o custo de memória fica justificado com número.
 - **Fonte:** F21.
-- **Mudança:** `docker-compose.yml`: `shared_buffers=192MB` — commit `<preencher>`
+- **Mudança:** `docker-compose.yml`: `shared_buffers=192MB` — commit `485ff12`. Evidência em `5ab3293` (commit medido). Resultados em `43ad8d4`.
 - **Antes:** experimento 14 (11/11 17:29–17:31, mesma sessão, sem reinício).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência (`diagnostico/19-shared-buffers/cache-192MB.txt`)
+
+`SHOW shared_buffers` = 192MB; contrato conferido. A curva de cache, pelo mesmo método nos três tamanhos:
+
+| `shared_buffers` | Acerto de cache | Páginas lidas de fora / 60 s | ... da tabela `pedidos` | Memória fixa (anon + shmem) |
+| --- | --- | --- | --- | --- |
+| 128 MB (13) | 95,60% | 771.900 | 688.524 | ~166 MiB |
+| **192 MB (15)** | **98,16%** | **349.484** | **290.818** | **~235 MiB** (38 + 197) |
+| 256 MB (14) | 99,89% | 20.325 | 0 | ~318 MiB |
+
+#### Medição sob carga (11/11, mesma sessão)
+
+- **Contrato:** mantido nas 3 execuções
+- **Depois:** commit `5ab3293`, pastas:
+  - [`resultados/20261111-181323-15-shared-buffers-192mb`](../resultados/20261111-181323-15-shared-buffers-192mb/resumo.txt)
+  - [`resultados/20261111-181443-15-shared-buffers-192mb`](../resultados/20261111-181443-15-shared-buffers-192mb/resumo.txt)
+  - [`resultados/20261111-181604-15-shared-buffers-192mb`](../resultados/20261111-181604-15-shared-buffers-192mb/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 181323 | 242.96 | 83.6 ms | 290.4 ms | 493.4 ms | 0.00% | 100.5% | 462.3 MiB | 28.0% | 27.9 MiB |
+| 181443 | 259.74 | 80.1 ms | 212.1 ms | 408.2 ms | 0.00% | 99.6% | 463.4 MiB | 30.4% | 28.0 MiB |
+| 181604 | 257.43 | 82.1 ms | 211.6 ms | 402.1 ms | 0.00% | 100.8% | 461.6 MiB | 30.3% | 28.0 MiB |
+| **Mediana** | **257.43** | **82.1 ms** | **212.1 ms** | **408.2 ms** | — | **100.5%** | **462.3 MiB** | **30.3%** | **28.0 MiB** |
+
+| Métrica (mediana das 3) | 13 (128 MB) | **15 (192 MB)** | 14 (256 MB) |
+| --- | --- | --- | --- |
+| Requisições/s | 219.74 | **257.43** | 298.89 |
+| Mediana geral | 86.0 ms | **82.1 ms** | 73.9 ms |
+| p95 geral | 345.6 ms | **212.1 ms** | 204.8 ms |
+| p99 geral | 588.4 ms | **408.2 ms** | 383.4 ms |
+| `vendas-por-dia` (mediana) | 396.7 ms | **290.9 ms** | 215.0 ms |
+
+Faixas de req/s: 13: 210,80–229,42; **15: 242,96–259,74**; 14: 286,84–307,48 — nenhuma se sobrepõe. **192 MB fica 14% abaixo de 256 MB** e 17% acima de 128 MB.
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| Acerto de cache entre 95,6% e 99,89% | confirmada: 98,16% |
+| req/s entre o 13 e o 14, mais perto do 14 | **parcial**: no meio (257 entre 220 e 299), não mais perto do 14 |
+| `shmem` ~210 MiB | confirmada: 197 MiB |
+| Regra de decisão escrita antes: se ficar na faixa do 14, fica 192 MB; se cair claramente, volta 256 MB | caiu claramente (sem sobreposição) → **volta para 256 MB** |
+
+**Confirmação da estimativa do experimento 14 (hipótese, derivada dos números):** de 192 para 256 MB, as leituras de fora caem ~329 mil por minuto e a CPU por requisição cai de ~3,88 ms (60 s ÷ 15.446 requisições) para ~3,35 ms: ~8,3 s de CPU por minuto, ou **~25 µs por página que faltava no cache** — coerente com os ~21 µs estimados de 128 para 256 MB. Duas estimativas independentes chegando ao mesmo valor tornam essa explicação bem mais crível. O ganho de vazão nos três pontos acompanha quase em linha reta a queda das leituras de fora do cache.
+
+- **Conclusão:** 192 MB (dentro dos 40% da documentação) rende 14% menos que 256 MB. Neste ambiente, o ganho **exige** passar da recomendação: os ~64 MiB a mais de memória fixa compram ~16% de vazão. Configuração devolvida para 256 MB no commit seguinte.
 
 ## Fontes
 
