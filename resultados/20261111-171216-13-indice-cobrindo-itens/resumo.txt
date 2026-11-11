@@ -1,0 +1,17 @@
+Medição: 13-indice-cobrindo-itens
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        12716
+Requisições/s:      210.80
+Tempo de resposta:  mediana 86.5 ms | p95 386.3 ms | p99 593.3 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               3168      16.5 ms       99.0 ms       105.5 ms      0.0%    
+cliente-por-email     1900      18.0 ms       99.7 ms       106.5 ms      0.0%    
+pedidos-do-cliente    2609      93.1 ms       189.9 ms      208.1 ms      0.0%    
+pedidos-por-status    1845      94.5 ms       195.3 ms      207.7 ms      0.0%    
+busca-produtos        1924      90.0 ms       110.3 ms      198.1 ms      0.0%    
+vendas-por-dia        1041      400.3 ms      687.1 ms      796.6 ms      0.0%    
+top-produtos          229       16.9 ms       99.4 ms       108.8 ms      0.0%    
