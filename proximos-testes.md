@@ -54,7 +54,23 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 - **Como testaria:** mudança no middleware, 3 medições, olhando a CPU da API; depois, uma medição com o limite da API reduzido.
 - **O que precisaria:** confirmar que o conteúdo do log não é usado por ninguém (ele não faz parte do contrato da API, mas é um comportamento observável).
 
-## 7. Paginação por cursor (keyset)
+## 7. `shared_buffers` de 192 MB (dentro da recomendação de 40%)
+
+- **De onde veio:** experimento 14. A documentação (F21) diz que mais de 40% da memória para `shared_buffers` dificilmente é melhor; o experimento 14 usou 50% (256 MB) e ganhou +36% de vazão sobre 128 MB.
+- **A ideia:** medir 192 MB (37,5% de 512 MB), entre os dois pontos.
+- **O que acredito que ganharia (hipótese):** parte do ganho do experimento 14 com ~64 MiB a menos de memória fixa. Com 192 MB, a tabela `pedidos` (174 MB) cabe, mas não junto com os índices mais usados; o acerto de cache deve ficar entre 95,6% e 99,89%.
+- **Como testaria:** mesma mudança do experimento 14 com 192MB, o mesmo diagnóstico de cache (`diagnostico/19-shared-buffers/cache.sh`) e 3 medições, comparando com o 13 e o 14 na mesma sessão.
+- **O que precisaria:** nada além do que existe. Diria se o ganho exige passar da recomendação da documentação.
+
+## 8. Índice que cobre `pedidos` para `vendas-por-dia`
+
+- **De onde veio:** experimento 14 (`diagnostico/19-shared-buffers/cache-256MB.txt`): mesmo com tudo em cache, `vendas-por-dia` visita ~1.000 páginas da tabela `pedidos` por chamada só para ler `id` e `status` (1,35 milhão de acertos por minuto em `pedidos`). Mesma ideia do experimento 13, aplicada à outra tabela (F20).
+- **A ideia:** `CREATE INDEX ON pedidos ((criado_em::date)) INCLUDE (id, status)`, para a consulta fazer `Index Only Scan` em `pedidos` também e não tocar nenhuma tabela.
+- **O que acredito que ganharia (hipótese):** menos CPU por chamada da rota mais cara; diferentemente do experimento 14, sem custo de memória fixa (só o índice).
+- **Como testaria:** pré-teste com `ROLLBACK` e CPU por consulta em A-B-A, como em `diagnostico/18-indice-cobrindo/`; 3 medições.
+- **O que precisaria:** nada além do que existe.
+
+## 9. Paginação por cursor (keyset)
 
 - **De onde veio:** F11 (Winand, "no-offset"): o método de busca por chave é "even faster than offset" (afirmação sem números na página).
 - **A ideia:** em vez de `pagina=N`, o cliente envia o último `(criado_em, id)` visto.
@@ -72,3 +88,5 @@ As referências completas, com links e trechos, estão na tabela de fontes de `n
 - F13: PostgreSQL 16, 41.3 Materialized Views. https://www.postgresql.org/docs/16/rules-materializedviews.html
 - F14: PostgreSQL 16, REFRESH MATERIALIZED VIEW. https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html
 - F17: PostgreSQL 16, F.35 pg_trgm. https://www.postgresql.org/docs/16/pgtrgm.html
+- F20: PostgreSQL 16, 11.9 Index-Only Scans and Covering Indexes. https://www.postgresql.org/docs/16/indexes-index-only-scans.html
+- F21: PostgreSQL 16, 20.4.1 `shared_buffers`. https://www.postgresql.org/docs/16/runtime-config-resource.html

@@ -66,7 +66,8 @@ Regras que valem aqui também:
 | 2026-11-11 | Pré-teste do índice que cobre (refeito com desenho A-B-A); hipótese do experimento 13 escrita antes da mudança | `822185e`, `7f51da7` |
 | 2026-11-11 | Experimento 12 remedido no mesmo preparo do 13 (`down -v`): 194,89 req/s; 8 janelas com `Seq Scan` | `ec88a76`, `36fcaea` |
 | 2026-11-11 | Experimento 13 (feito pelo Claude Code a pedido): índice que cobre; +12,8% req/s, p95/p99 −16%, p99 de `vendas-por-dia` −45%; P14 resolvido junto (725/725 janelas com `Index Only Scan`) | `982f6c2`, `ded6504`, `6e10cd7` |
-| 2026-11-11 | Pré-teste de cache (128 MB): 95,6% de acerto, 89% das leituras de fora vêm da tabela `pedidos`; hipótese do experimento 14 escrita antes da mudança | `diagnostico/19-shared-buffers/`, este diário |
+| 2026-11-11 | Pré-teste de cache (128 MB): 95,6% de acerto, 89% das leituras de fora vêm da tabela `pedidos`; hipótese do experimento 14 escrita antes da mudança | diagnóstico e hipótese antes de `28c1ceb` |
+| 2026-11-11 | Experimento 14 (feito pelo Claude Code a pedido): `shared_buffers` 256 MB; acerto 99,89%; +36% req/s, p95 −41%, `vendas-por-dia` −46%; custo +152 MiB de memória fixa | `28c1ceb`, `ba50fd0`, `5e1f4ce` |
 
 ## Ambiente
 
@@ -305,7 +306,7 @@ Feito pelo Claude Code a pedido do Breno ("rodar mais um diagnóstico para ver s
 | --- | --- | --- | --- | --- |
 | P14 | Em 5 de 725 janelas, `vendas-por-dia` troca para `Seq Scan` em 1,5 mi de itens | `planos-vendas.txt`, `plano-alternativo.txt` | O modelo de custo do planejador supõe disco (`random_page_cost = 4`, padrão) e superestima as linhas, então acha a varredura completa mais barata que 5 mil buscas por índice; aqui os dados ficam em cache | `random_page_cost` menor (configuração), conferindo os planos das 7 rotas |
 | P15 | `vendas-por-dia` visita ~4.300 vezes a tabela `itens_pedido` por chamada | 4,86 mi buscas no índice; ~18 mil páginas por chamada | O índice só aponta para a linha; a quantidade e o preço precisam ser lidos na tabela | índice que cubra as colunas (`(pedido_id) INCLUDE (quantidade, preco_unitario_centavos)`) para permitir `Index Only Scan` |
-| P16 | `shared_buffers` (128 MB) menor que o conjunto de dados quente | 94,3% de acerto; 1,23 mi páginas de fora em 60 s | Páginas lidas do cache do sistema operacional custam CPU a cada cópia, num banco no teto de CPU | aumentar `shared_buffers` (custo: memória que não pode ser liberada; hoje ~190 MiB de 512 usados, Diagnóstico 05) |
+| P16 | `shared_buffers` (128 MB) menor que o conjunto de dados quente | 94,3% de acerto; 1,23 mi páginas de fora em 60 s | Páginas lidas do cache do sistema operacional custam CPU a cada cópia, num banco no teto de CPU | aumentar `shared_buffers` (custo: memória que não pode ser liberada; hoje ~190 MiB de 512 usados, Diagnóstico 05) — **resolvido no experimento 14** (256 MB: +36% req/s) |
 | P12 | Log com corpo inteiro | 17 MB/min; API a ~51% da cota | — | segue de baixa prioridade; se o banco ficar bem mais rápido, a API pode virar o teto |
 
 **Atualização de P14 (10/11, `diagnostico/18-indice-cobrindo/planos-antes.txt`):** depois de recriar o banco com `down -v` (dados e estatísticas gerados de novo), **19** das 725 janelas passaram a usar o plano com `Seq Scan` em itens, contra 5 em 09/11; numa nova recriação em 11/11, **8** (`planos-antes-1111.txt`). Coerente com P14 explicar a cauda de `vendas-por-dia`: com 8 janelas trocando de plano, o p99 da rota no antes do experimento 13 ficou em 1,1–1,5 s. O `ANALYZE` usa uma amostra aleatória da tabela, então as estimativas — e quais janelas trocam de plano — mudam a cada recriação do banco. **Consequência de método:** P14 adiciona ruído na cauda de `vendas-por-dia` em toda comparação que recria o banco; a remedição do "antes" precisa ser feita com o mesmo preparo (`down -v`) que o "depois".
@@ -1477,7 +1478,7 @@ Por rota (mediana das medianas):
 
 ### 14-shared-buffers-256mb
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — ganho muito maior que o previsto (+36% de vazão); a hipótese sobre o tamanho do ganho foi refutada. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P16 (Diagnóstico 06): o cache do PostgreSQL (`shared_buffers`) está no padrão de 128 MB, menor que os dados lidos com frequência.
 - **Pré-teste (fato, `diagnostico/19-shared-buffers/cache-128MB.txt`; carga igual à do `medir.sh` com as estatísticas zeradas antes; código do experimento 13; 235,99 req/s nessa carga):**
   - Acerto de cache do banco: **95,60%**; **771.900 páginas** lidas de fora do `shared_buffers` em 60 s.
@@ -1492,12 +1493,73 @@ Por rota (mediana das medianas):
 - **O que derrubaria a hipótese:** acerto de cache sem mudança (a mudança não pegou), ou piora de desempenho (pressão de memória no container, ou a recomendação de 40% da documentação valendo aqui).
 - **Fonte da ideia:** F21 (PostgreSQL 16, 20.4.1 `shared_buffers`).
 - **Cuidado de operação:** o parâmetro "can only be set at server start" (F21): exige reiniciar o banco. E os composes de diagnóstico que substituem o `command` (ex.: `diagnostico/17-diagnostico-06/docker-compose.pg-stat.yml`) precisam repetir também este parâmetro.
-- **Mudança:** `docker-compose.yml`, `command` do banco ganha `-c shared_buffers=256MB` — commit `<preencher>`
+- **Mudança:** `docker-compose.yml`, `command` do banco ganha `-c shared_buffers=256MB` — commit `28c1ceb`. Evidência em `ba50fd0` (commit medido). Resultados em `5e1f4ce`.
 - **Custo esperado:** **memória que não pode ser liberada**: +128 MiB fixos no container do banco (de ~170 para ~300 MiB de 512). Nenhum recurso novo, mas menos folga para outros usos de memória.
 - **Antes:** experimento 13, 3 pastas de 11/11 17:09–17:12 (mesma sessão, sem reinício).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência (`diagnostico/19-shared-buffers/`, mesmo método antes e depois)
+
+| | 128 MB (`cache-128MB.txt`) | 256 MB (`cache-256MB.txt`) |
+| --- | --- | --- |
+| `SHOW shared_buffers` | 128MB | 256MB |
+| Acerto de cache durante a carga | 95,60% | **99,89%** |
+| Páginas lidas de fora do `shared_buffers` em 60 s | 771.900 | **20.325 (−97%)** |
+| ... da tabela `pedidos` | 688.524 | **0** |
+| req/s da carga do diagnóstico | 235,99 | 260,02 |
+| Memória do container: `anon` / `shmem` | 34 / 132 MiB | 44 / 274 MiB |
+| Memória que não pode ser liberada (anon + shmem) | ~166 MiB | **~318 MiB de 512** |
+
+(No cgroup v2, `file` inclui o `shmem`; o cache de arquivos de verdade caiu de ~313 para ~162 MiB.) Contrato conferido antes de medir.
+
+#### Medição sob carga (11/11, mesma sessão do experimento 13)
+
+- **Contrato:** mantido nas 3 execuções
+- **Depois:** commit `ba50fd0`, pastas:
+  - [`resultados/20261111-172915-14-shared-buffers-256mb`](../resultados/20261111-172915-14-shared-buffers-256mb/resumo.txt)
+  - [`resultados/20261111-173035-14-shared-buffers-256mb`](../resultados/20261111-173035-14-shared-buffers-256mb/resumo.txt)
+  - [`resultados/20261111-173155-14-shared-buffers-256mb`](../resultados/20261111-173155-14-shared-buffers-256mb/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 172915 | 286.84 | 75.0 ms | 206.6 ms | 395.7 ms | 0.00% | 100.2% | 439.1 MiB | 29.9% | 27.7 MiB |
+| 173035 | 298.89 | 73.9 ms | 204.8 ms | 383.4 ms | 0.00% | 100.1% | 439.8 MiB | 29.5% | 28.0 MiB |
+| 173155 | 307.48 | 70.0 ms | 202.5 ms | 315.4 ms | 0.00% | 100.1% | 453.9 MiB | 29.4% | 27.9 MiB |
+| **Mediana** | **298.89** | **73.9 ms** | **204.8 ms** | **383.4 ms** | — | **100.1%** | **439.8 MiB** | **29.5%** | **27.9 MiB** |
+
+| Métrica (mediana das 3) | 13-indice-cobrindo-itens | 14-shared-buffers-256mb | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 219.74 | 298.89 | **+36%** (faixas 210,80–229,42 → 286,84–307,48) |
+| p95 geral | 345.6 ms | 204.8 ms | **−41%** (faixas 304–386 → 202–207 ms) |
+| p99 geral | 588.4 ms | 383.4 ms | **−35%** (faixas 510–593 → 315–396 ms) |
+| Mediana geral | 86.0 ms | 73.9 ms | −14% (faixas 85,2–86,5 → 70,0–75,0 ms) |
+| Banco CPU média | 100.1% | 100.1% | no teto |
+| API CPU média | 26.7% | 29.5% | **~59% da cota de 0,5 CPU** (sobe com as req/s) |
+
+Por rota (mediana das medianas):
+
+| Rota | 13 | 14 | Variação |
+| --- | --- | --- | --- |
+| `vendas-por-dia` | 396.7 ms (p95 615.1, p99 807.1) | 215.0 ms (p95 403.1, p99 492.6) | **−46%** (p95 −34%, p99 −39%), com 33% mais chamadas |
+| `pedidos-do-cliente` | 92.5 ms | 77.6 ms | −16% (desfaz a piora de +2,8% do experimento 13) |
+| `busca-produtos` | 88.9 ms | 80.1 ms | −10% |
+| `pedidos-por-status` | 93.8 ms | 85.9 ms | −8% |
+| `cliente` / `cliente-por-email` / `top-produtos` | 14.8 / 15.5 / 15.4 ms | 12.6 / 12.8 / 12.9 ms | −15% a −17% |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| `shared_buffers` = 256MB; acerto perto de 100%; leituras de fora de `pedidos` perto de zero | confirmada: 99,89%; `pedidos` 688.524 → 0 |
+| req/s sobe **pouco** (2–7%, talvez dentro da variação) | **refutada**: +36%, muito além da variação |
+| `vendas-por-dia` melhora um pouco | **refutada para mais**: −46% |
+| `shmem` sobe para ~260 MiB | confirmada: 274 MiB |
+
+**Por que errei o tamanho do ganho (hipótese, estimada a partir dos números, não medida diretamente):** com o banco no teto de CPU, a CPU por requisição caiu de ~4,55 ms (60 s de CPU ÷ 13.184 requisições por minuto) para ~3,35 ms (60 s ÷ 17.933): ~1,2 ms a menos por requisição, ou ~16 s de CPU por minuto de carga do "antes", para ~750 mil páginas a menos lidas de fora. Dá **~21 µs de CPU por página que faltava no cache**, não "alguns µs" como supus. Plausível: cada falta exige achar e liberar um buffer, uma chamada de sistema para ler do cache do sistema operacional e copiar 8 kB, tudo dentro de uma máquina virtual (WSL 2), onde chamadas de sistema custam mais. E com a tabela `pedidos` (174 MB) maior que o cache de 128 MB, as mesmas páginas eram expulsas e lidas de novo o tempo todo (688 mil leituras por minuto para uma tabela de ~22 mil páginas: cada página relida ~31 vezes por minuto).
+
+**Sobre a recomendação da documentação (F21):** "it is unlikely that an allocation of more than 40% of RAM [...] will work better than a smaller amount". Aqui 50% (256 MB) foi muito melhor que 25% (128 MB). Não contradiz a documentação no caso geral; mostra que neste ambiente ela não vale: (1) a "RAM" é um limite de 512 MB de container, muito menor que o servidor de "1GB or more" que ela supõe; (2) o cache do sistema operacional fica **dentro do mesmo limite** do container, então não é uma camada "grátis" atrás do `shared_buffers`; (3) o conjunto quente (sobretudo `pedidos`, 174 MB) cabe em 256 MB e não em 128 MB. **Não testado:** 192 MB (37,5%, dentro dos 40%), que diria se o ganho exige passar da recomendação — registrado em `proximos-testes.md`.
+
+- **Conclusão:** aplicada e medida, com ganho grande: +36% de vazão, p95 −41%, p99 −35%, `vendas-por-dia` −46%, mudando um parâmetro. Custo real e permanente: **+152 MiB de memória que não pode ser liberada** no container do banco (~166 → ~318 MiB de 512), com menos cache de arquivos. Lição para o artigo: a regra de bolso da documentação (25%, no máximo 40%) é um ponto de partida; o que decidiu foi medir o acerto de cache por tabela e o tamanho do conjunto quente.
+- **Gargalo que apareceu depois:** o banco segue no teto de CPU; `vendas-por-dia` (215 ms) continua a rota mais cara, agora lendo ~1.000 páginas de `pedidos` por chamada **do cache** (1,35 mi de acertos por minuto em `pedidos`). A API subiu para ~59% da sua cota: se o banco melhorar muito mais, ela volta a ser candidata a teto.
 
 ## Fontes
 
