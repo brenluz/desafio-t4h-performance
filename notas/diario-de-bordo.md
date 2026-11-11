@@ -1561,6 +1561,20 @@ Por rota (mediana das medianas):
 - **Conclusão:** aplicada e medida, com ganho grande: +36% de vazão, p95 −41%, p99 −35%, `vendas-por-dia` −46%, mudando um parâmetro. Custo real e permanente: **+152 MiB de memória que não pode ser liberada** no container do banco (~166 → ~318 MiB de 512), com menos cache de arquivos. Lição para o artigo: a regra de bolso da documentação (25%, no máximo 40%) é um ponto de partida; o que decidiu foi medir o acerto de cache por tabela e o tamanho do conjunto quente.
 - **Gargalo que apareceu depois:** o banco segue no teto de CPU; `vendas-por-dia` (215 ms) continua a rota mais cara, agora lendo ~1.000 páginas de `pedidos` por chamada **do cache** (1,35 mi de acertos por minuto em `pedidos`). A API subiu para ~59% da sua cota: se o banco melhorar muito mais, ela volta a ser candidata a teto.
 
+### 15-shared-buffers-192mb
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido** (ideia 7 de `proximos-testes.md`, testada a pedido do Breno).
+- **Pergunta:** o ganho do experimento 14 exige passar dos 40% que a documentação desaconselha (F21), ou 192 MB (37,5% de 512 MB) dão o mesmo com ~64 MiB a menos de memória fixa?
+- **Hipótese:** com 192 MB a tabela `pedidos` (174 MB) cabe no cache, mas não junto com todos os índices quentes (~45 MB do índice de itens, ~21 MB do índice por status, ~11 MB da chave de `pedidos`, entre outros); o acerto de cache deve ficar entre 95,6% e 99,89%, e as req/s abaixo das do experimento 14, mas bem acima das do 13. Se ficar dentro da variação do 14, 192 MB é a escolha melhor (mesmo ganho, menos memória).
+- **Previsões:** `SHOW shared_buffers` = 192MB; acerto entre os dois; req/s entre 219,74 (13) e 298,89 (14), mais perto do 14; `shmem` ~210 MiB.
+- **O que decide:** se as req/s ficarem na faixa do 14 (286,84–307,48), fica 192 MB; se caírem claramente, volta para 256 MB e o custo de memória fica justificado com número.
+- **Fonte:** F21.
+- **Mudança:** `docker-compose.yml`: `shared_buffers=192MB` — commit `<preencher>`
+- **Antes:** experimento 14 (11/11 17:29–17:31, mesma sessão, sem reinício).
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
