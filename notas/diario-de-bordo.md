@@ -1788,6 +1788,17 @@ Contas (F22): ex. limites originais = 1,5 × 0,04048 + 0,75 × 0,004445 = 0,0640
 
 **Leitura:** a versão final aguenta **mais de 100× a carga com o mesmo custo**, ou **a mesma carga da original com uma fração mínima do recurso**: para os 2,38 req/s da aplicação original, um quarto da CPU já sobra. O custo por milhão de requisições fica praticamente igual (US$ 0,064–0,078) em todas as configurações da versão final, porque a vazão cai junto com a CPU: **cortar CPU não barateia cada requisição, só a capacidade total**. A escolha de limite é uma decisão de quanta carga se espera e de quanta latência se aceita (p99 de 0,41 s com a CPU original contra 2,84 s com um quarto). A memória pode cair (512 → 384 MB no banco, 256 → 128 MB na API) sem perda medida.
 
+### Investigação: por que "metade da CPU e menos memória" fez mais que "metade da CPU"?
+
+Pedida pelo Breno: medir de novo só essas duas configurações. Feita pelo Claude Code.
+
+- **O que já se vê nas pastas (fato):** a diferença não está espalhada. Em custo-03, as rotas mais baratas **saíram do degrau de ~100 ms** (`cliente`: 16,1 / 12,0 / 13,1 ms contra 89,8 / 93,6 / 93,2 ms em custo-01; `top-produtos`: 13,2 / 80,2 / 12,1 contra 94,4 / 94,3 / 96,5 ms) e `vendas-por-dia` ficou em ~603 ms contra 799–996 ms. As demais rotas ficaram parecidas (~100 ms). É o mesmo sinal do experimento 12: pausas de throttling mais curtas ou mais raras.
+- **Hipóteses (escritas antes de medir de novo):**
+  - **H0 (deriva):** custo-03 mediu ~15 min depois de custo-01; a diferença é do ambiente. Previsão: medidas intercaladas não mostram diferença além da variação.
+  - **H1 (efeito real da memória):** algo ligado ao limite de memória muda o padrão de throttling do banco. Previsão: com as medidas intercaladas a diferença persiste, e os contadores do cgroup mostram em quê (duração média das pausas, faltas de página, páginas de cache relidas, leituras de disco).
+- **Desenho:** as duas configurações **intercaladas** na ordem A-B-B-A-A-B (A = custo-01, B = custo-03), 3 medições de cada, para a deriva cair igual nas duas. Usa os **commits já existentes** (`090a390` e `072634d`, com `git switch --detach`), sem commit novo de código ou configuração. Mesmo preparo em todas (`down -v`, 90 s, contrato). Antes e depois de cada `medir.sh`, leitura dos contadores do cgroup do banco (`cpu.stat`, `memory.stat`, `io.stat`), gravados fora do repositório durante as medições (para não contar como arquivo sem commit) e copiados para `diagnostico/21-memoria-metade-cpu/` no fim.
+- **Resultados:** `<preencher>`
+
 **Deriva no mesmo dia (para "Limites"):** a versão final com os limites originais fez 260,62 req/s às 18:45, contra 298,89 req/s no experimento 14 às 17:30, com o mesmo código e a mesma configuração (13% a menos, ~1 h depois). Por isso este estudo foi feito numa sessão única: as comparações acima são entre medições de 18:45 a 19:30.
 
 ## Fontes
