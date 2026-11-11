@@ -1,0 +1,24 @@
+ciclo 3 custo-03-metade-cpu-menos-memoria-intercalado 072634d
+Wed Nov 11 19:52:20 -03 2026
+memory.max 402653184
+memory.current 400871424
+memory.peak 402669568
+usage_usec 84496318
+nr_periods 1887
+nr_throttled 1592
+throttled_usec 837753926
+anon 40587264
+file 333533184
+shmem 284131328
+inactive_file 28966912
+active_file 20434944
+workingset_refault_anon 8799
+workingset_refault_file 141084
+workingset_activate_file 57541
+pgscan 754640
+pgsteal 555864
+pgfault 974861
+pgmajfault 3652
+io 8:32 rbytes=36040704 wbytes=50573312 rios=8799 wios=12347 dbytes=0 dios=0
+io 8:48 rbytes=8192 wbytes=0 rios=2 wios=0 dbytes=0 dios=0
+io 8:64 rbytes=577871872 wbytes=2453401600 rios=45409 wios=9028 dbytes=0 dios=0

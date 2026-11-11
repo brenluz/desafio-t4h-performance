@@ -1,0 +1,17 @@
+Medição: custo-01-metade-cpu-intercalado
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        8467
+Requisições/s:      140.25
+Tempo de resposta:  mediana 95.0 ms | p95 592.7 ms | p99 994.0 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               2135      10.6 ms       189.3 ms      199.1 ms      0.0%    
+cliente-por-email     1243      27.0 ms       193.2 ms      292.5 ms      0.0%    
+pedidos-do-cliente    1763      102.4 ms      401.4 ms      600.7 ms      0.0%    
+pedidos-por-status    1222      99.0 ms       300.0 ms      426.0 ms      0.0%    
+busca-produtos        1268      95.6 ms       301.4 ms      491.9 ms      0.0%    
+vendas-por-dia        687       601.2 ms      1191.9 ms     1497.2 ms     0.0%    
+top-produtos          149       81.5 ms       195.2 ms      267.6 ms      0.0%    

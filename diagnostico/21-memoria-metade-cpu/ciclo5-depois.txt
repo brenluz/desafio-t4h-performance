@@ -1,0 +1,24 @@
+ciclo 5 custo-01-metade-cpu-intercalado 090a390
+Wed Nov 11 20:01:24 -03 2026
+memory.max 536870912
+memory.current 534601728
+memory.peak 537018368
+usage_usec 82872886
+nr_periods 1852
+nr_throttled 1552
+throttled_usec 832981388
+anon 48029696
+file 460021760
+shmem 286818304
+inactive_file 79683584
+active_file 93519872
+workingset_refault_anon 219
+workingset_refault_file 65767
+workingset_activate_file 39730
+pgscan 437041
+pgsteal 414857
+pgfault 978042
+pgmajfault 172
+io 8:32 rbytes=897024 wbytes=1622016 rios=219 wios=396 dbytes=0 dios=0
+io 8:48 rbytes=8192 wbytes=0 rios=2 wios=0 dbytes=0 dios=0
+io 8:64 rbytes=269373440 wbytes=2427813888 rios=25524 wios=8737 dbytes=0 dios=0
