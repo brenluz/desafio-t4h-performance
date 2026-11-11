@@ -1,0 +1,17 @@
+Medição: 15-shared-buffers-192mb
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        15473
+Requisições/s:      257.43
+Tempo de resposta:  mediana 82.1 ms | p95 211.6 ms | p99 402.1 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               3886      15.5 ms       95.8 ms       101.0 ms      0.0%    
+cliente-por-email     2296      16.3 ms       96.9 ms       102.5 ms      0.0%    
+pedidos-do-cliente    3170      91.7 ms       110.7 ms      200.6 ms      0.0%    
+pedidos-por-status    2243      89.3 ms       109.8 ms      195.8 ms      0.0%    
+busca-produtos        2321      81.9 ms       104.3 ms      188.0 ms      0.0%    
+vendas-por-dia        1262      284.9 ms      498.0 ms      601.4 ms      0.0%    
+top-produtos          295       16.5 ms       98.9 ms       104.3 ms      0.0%    
