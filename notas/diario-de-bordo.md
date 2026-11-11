@@ -63,7 +63,8 @@ Regras que valem aqui também:
 | 2026-11-09 | Experimento 12 (feito pelo Claude Code a pedido): `max_parallel_workers_per_gather=0`; +64% req/s, p95 −35%, p99 −40%; rotas baratas de ~93 para ~11 ms | `0b947c2`, `9742069`, `c43014b` |
 | 2026-11-09 | `proximos-testes.md` criado (7 ideias, inclusive o resumo por dia que não foi feito) | `6afb2e9` |
 | 2026-11-09 | Diagnóstico 06 (feito pelo Claude Code a pedido): `vendas-por-dia` = 81% do banco; P14 (troca de plano em 5 de 725 janelas, 5,5× mais CPU), P15 (4.300 visitas à tabela de itens por chamada), P16 (`shared_buffers` menor que os dados quentes) | `ef11003`, `2dff575` |
-| 2026-11-11 | Pré-teste do índice que cobre (refeito com desenho A-B-A); hipótese do experimento 13 escrita antes da mudança | `822185e`, este diário |
+| 2026-11-11 | Pré-teste do índice que cobre (refeito com desenho A-B-A); hipótese do experimento 13 escrita antes da mudança | `822185e`, `7f51da7` |
+| 2026-11-11 | Experimento 12 remedido no mesmo preparo do 13 (`down -v`): 194,89 req/s; 8 janelas com `Seq Scan` | `ec88a76`, `36fcaea` |
 
 ## Ambiente
 
@@ -305,7 +306,7 @@ Feito pelo Claude Code a pedido do Breno ("rodar mais um diagnóstico para ver s
 | P16 | `shared_buffers` (128 MB) menor que o conjunto de dados quente | 94,3% de acerto; 1,23 mi páginas de fora em 60 s | Páginas lidas do cache do sistema operacional custam CPU a cada cópia, num banco no teto de CPU | aumentar `shared_buffers` (custo: memória que não pode ser liberada; hoje ~190 MiB de 512 usados, Diagnóstico 05) |
 | P12 | Log com corpo inteiro | 17 MB/min; API a ~51% da cota | — | segue de baixa prioridade; se o banco ficar bem mais rápido, a API pode virar o teto |
 
-**Atualização de P14 (10/11, `diagnostico/18-indice-cobrindo/planos-antes.txt`):** depois de recriar o banco com `down -v` (dados e estatísticas gerados de novo), **19** das 725 janelas passaram a usar o plano com `Seq Scan` em itens, contra 5 em 09/11. O `ANALYZE` usa uma amostra aleatória da tabela, então as estimativas — e quais janelas trocam de plano — mudam a cada recriação do banco. **Consequência de método:** P14 adiciona ruído na cauda de `vendas-por-dia` em toda comparação que recria o banco; a remedição do "antes" precisa ser feita com o mesmo preparo (`down -v`) que o "depois".
+**Atualização de P14 (10/11, `diagnostico/18-indice-cobrindo/planos-antes.txt`):** depois de recriar o banco com `down -v` (dados e estatísticas gerados de novo), **19** das 725 janelas passaram a usar o plano com `Seq Scan` em itens, contra 5 em 09/11; numa nova recriação em 11/11, **8** (`planos-antes-1111.txt`). Coerente com P14 explicar a cauda de `vendas-por-dia`: com 8 janelas trocando de plano, o p99 da rota no antes do experimento 13 ficou em 1,1–1,5 s. O `ANALYZE` usa uma amostra aleatória da tabela, então as estimativas — e quais janelas trocam de plano — mudam a cada recriação do banco. **Consequência de método:** P14 adiciona ruído na cauda de `vendas-por-dia` em toda comparação que recria o banco; a remedição do "antes" precisa ser feita com o mesmo preparo (`down -v`) que o "depois".
 
 **Impacto relativo (estimativa a partir dos fatos acima, não medição):** P14 atinge ~0,7% das chamadas de `vendas-por-dia` (6 de ~1.125 no minuto): ~6 × 122 ms ≈ 0,7 s de CPU por minuto, ~1% da CPU do banco; deve explicar parte do p99 da rota (~0,9 s). P15 e P16 atingem **todas** as chamadas da consulta que é 81% do banco. Ordem sugerida: pré-testar P15 primeiro, depois P14 e P16.
 
@@ -1411,7 +1412,11 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Cuidados de contrato:** consulta igual (só muda o plano); resultados provados iguais nas 725 janelas.
 - **Mudança:** `banco/10-indice-itens-cobrindo.sql` (cria o novo, remove `itens_pedido_pedido_id_idx` do experimento 01) — commit `<preencher>`
 - **Custo esperado:** +24 MB de índice (45 contra 21); escrita em `itens_pedido` um pouco mais cara (índice maior); o mapa de visibilidade precisa estar em dia para o `Index Only Scan` não visitar a tabela (aqui o autovacuum cuida, Diagnóstico 03).
-- **Antes:** experimento 12 **remedido em 11/11** (o experimento 12 é de 09/11, outro dia), com o mesmo preparo que o 13 terá: banco recriado com `down -v`, 90 s para o autovacuum, contrato conferido. `<preencher pastas e medianas>`
+- **Antes:** experimento 12 **remedido em 11/11** (o experimento 12 é de 09/11, outro dia), com o mesmo preparo que o 13 terá: banco recriado com `down -v`, 90 s para o autovacuum, contrato conferido. Nessa amostra de estatísticas, **8** das 725 janelas usam o plano com `Seq Scan` (`diagnostico/18-indice-cobrindo/planos-antes-1111.txt`). Commit medido `7f51da7`, resultados em `ec88a76`:
+  - [`resultados/20261111-170206-12-sem-paralelismo-remedido`](../resultados/20261111-170206-12-sem-paralelismo-remedido/resumo.txt): 188,67 req/s, p95 490,0 ms, p99 794,1 ms; `vendas-por-dia` p99 1.469,1 ms
+  - [`resultados/20261111-170326-12-sem-paralelismo-remedido`](../resultados/20261111-170326-12-sem-paralelismo-remedido/resumo.txt): 201,09 req/s, p95 407,8 ms, p99 690,8 ms; `vendas-por-dia` p99 1.113,1 ms
+  - [`resultados/20261111-170447-12-sem-paralelismo-remedido`](../resultados/20261111-170447-12-sem-paralelismo-remedido/resumo.txt): 194,89 req/s, p95 409,3 ms, p99 700,8 ms; `vendas-por-dia` p99 1.541,3 ms
+  - **Mediana: 194,89 req/s**, p95 409,3 ms, p99 700,8 ms; `vendas-por-dia` mediana 495,8 ms, p99 1.469,1 ms. Mesmo código do 12 de 09/11 (227,59 req/s): diferença do ambiente/dia (ver "Limites").
 - **Depois:** `<preencher pastas>`
 - **Resultado (medianas):** `<preencher>`
 - **Conclusão:** `<preencher>`
