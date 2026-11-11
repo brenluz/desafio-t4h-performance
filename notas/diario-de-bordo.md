@@ -66,6 +66,7 @@ Regras que valem aqui também:
 | 2026-11-11 | Pré-teste do índice que cobre (refeito com desenho A-B-A); hipótese do experimento 13 escrita antes da mudança | `822185e`, `7f51da7` |
 | 2026-11-11 | Experimento 12 remedido no mesmo preparo do 13 (`down -v`): 194,89 req/s; 8 janelas com `Seq Scan` | `ec88a76`, `36fcaea` |
 | 2026-11-11 | Experimento 13 (feito pelo Claude Code a pedido): índice que cobre; +12,8% req/s, p95/p99 −16%, p99 de `vendas-por-dia` −45%; P14 resolvido junto (725/725 janelas com `Index Only Scan`) | `982f6c2`, `ded6504`, `6e10cd7` |
+| 2026-11-11 | Pré-teste de cache (128 MB): 95,6% de acerto, 89% das leituras de fora vêm da tabela `pedidos`; hipótese do experimento 14 escrita antes da mudança | `diagnostico/19-shared-buffers/`, este diário |
 
 ## Ambiente
 
@@ -1474,6 +1475,30 @@ Por rota (mediana das medianas):
 - **Conclusão:** aplicada e medida, com ganho: +12,8% de vazão, p95 e p99 −16%, e a cauda de `vendas-por-dia` quase pela metade (p99 −45%), com resultados provados iguais nas 725 janelas. O efeito mais importante foi colateral: **P14 sumiu**, porque com o caminho por índice mais barato o planejador deixou de escolher a varredura completa em qualquer janela, inclusive com uma nova amostra de estatísticas. Custo: +24 MB de índice e +2,8% em `pedidos-do-cliente`.
 - **Gargalo que apareceu depois:** o banco segue no teto; `vendas-por-dia` (~400 ms) continua a rota mais cara. Próximo no plano: P16 (`shared_buffers`). P14 não precisa mais do experimento de configuração (`random_page_cost`): resolvido aqui.
 
+### 14-shared-buffers-256mb
+
+- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Problema:** P16 (Diagnóstico 06): o cache do PostgreSQL (`shared_buffers`) está no padrão de 128 MB, menor que os dados lidos com frequência.
+- **Pré-teste (fato, `diagnostico/19-shared-buffers/cache-128MB.txt`; carga igual à do `medir.sh` com as estatísticas zeradas antes; código do experimento 13; 235,99 req/s nessa carga):**
+  - Acerto de cache do banco: **95,60%**; **771.900 páginas** lidas de fora do `shared_buffers` em 60 s.
+  - **89% delas (688.524) são da tabela `pedidos`** (174 MB, maior que o cache), quase todas de `vendas-por-dia`, que visita ~1.000 páginas espalhadas de `pedidos` por chamada para ler `id` e `status` dos pedidos do período. Os índices quase não leem de fora (o maior: `pedidos_pkey`, 28.894).
+  - Memória do container logo depois: `memory.current` 503,5 MiB de 512; `anon` 34 MiB, `shmem` 132 MiB (o cache de 128 MB), `file` 444,6 MiB (cache de arquivos, liberável).
+- **Valor escolhido e por quê:** F21 (documentação, 20.4.1) recomenda começar com **25%** da memória e diz que "it is unlikely that an allocation of more than **40%** of RAM to shared_buffers will work better than a smaller amount", porque o PostgreSQL também usa o cache do sistema operacional. Aqui a "RAM" é o limite de 512 MB do container: os 128 MB atuais **já são os 25%**. Testo **256 MB (50%)**, que é o que cabe `pedidos` inteira mais os índices quentes, **acima** dos 40% que a documentação desaconselha: o experimento testa essa recomendação nesta carga.
+- **Hipótese:** com 256 MB, `pedidos` e os índices quentes cabem no cache do PostgreSQL, o acerto sobe para perto de 100% e o banco deixa de copiar ~770 mil páginas por minuto do cache do sistema operacional, o que deve aumentar as req/s **pouco**: cada cópia custa microssegundos, então o ganho esperado é de alguns por cento (estimativa: ~2–7% da CPU do banco), possivelmente dentro da variação.
+- **Previsões que dá para conferir:**
+  - `SHOW shared_buffers` = 256MB; acerto de cache perto de 100%; leituras de fora de `pedidos` caem perto de zero (`cache-256MB.txt`, mesmo método).
+  - req/s sobe pouco (alguns %); `vendas-por-dia` melhora um pouco.
+  - Memória: `shmem` sobe para ~260 MiB; o cache de arquivos encolhe (o limite de 512 MB continua o mesmo).
+- **O que derrubaria a hipótese:** acerto de cache sem mudança (a mudança não pegou), ou piora de desempenho (pressão de memória no container, ou a recomendação de 40% da documentação valendo aqui).
+- **Fonte da ideia:** F21 (PostgreSQL 16, 20.4.1 `shared_buffers`).
+- **Cuidado de operação:** o parâmetro "can only be set at server start" (F21): exige reiniciar o banco. E os composes de diagnóstico que substituem o `command` (ex.: `diagnostico/17-diagnostico-06/docker-compose.pg-stat.yml`) precisam repetir também este parâmetro.
+- **Mudança:** `docker-compose.yml`, `command` do banco ganha `-c shared_buffers=256MB` — commit `<preencher>`
+- **Custo esperado:** **memória que não pode ser liberada**: +128 MiB fixos no container do banco (de ~170 para ~300 MiB de 512). Nenhum recurso novo, mas menos folga para outros usos de memória.
+- **Antes:** experimento 13, 3 pastas de 11/11 17:09–17:12 (mesma sessão, sem reinício).
+- **Depois:** `<preencher pastas>`
+- **Resultado (medianas):** `<preencher>`
+- **Conclusão:** `<preencher>`
+
 ## Fontes
 
 | # | Autor / organização | Título | Link | Acesso | Tipo (doc oficial / acadêmica / técnica primária / caso de mercado / blog) | Abordagem | O que diz (fato) |
@@ -1497,6 +1522,7 @@ Por rota (mediana das medianas):
 | F18 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 20.4.6 (Resource Consumption, Asynchronous Behavior): `max_parallel_workers_per_gather` | https://www.postgresql.org/docs/16/runtime-config-resource.html | 2026-11-09 | doc oficial | configuração / paralelismo | "Sets the maximum number of workers that can be started by a single Gather or Gather Merge node"; "The default value is 2. Setting this value to 0 disables parallel query execution"; "parallel queries may consume very substantially more resources than non-parallel queries, because each worker process is a completely separate process which has roughly the same impact on the system as an additional user session"; "a parallel query using 4 workers may use up to 5 times as much CPU time [...] as a query which uses no workers at all" |
 | F19 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 15 Parallel Query e 15.1 How Parallel Query Works | https://www.postgresql.org/docs/16/parallel-query.html e https://www.postgresql.org/docs/16/how-parallel-query-works.html | 2026-11-09 | doc oficial | paralelismo | "PostgreSQL can devise query plans that can leverage multiple CPUs in order to answer queries faster"; "Many queries cannot benefit from parallel query"; no `Gather` o líder pede "background worker processes" e "must also read all of the tuples generated by the workers" |
 | F20 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.9 Index-Only Scans and Covering Indexes | https://www.postgresql.org/docs/16/indexes-index-only-scans.html | 2026-11-11 | doc oficial | índices | "index-only scans, which can answer queries from an index alone without any heap access"; "The query must reference only columns stored in the index"; a vantagem depende do mapa de visibilidade ("it will be a win only if a significant fraction of the table's heap pages have their all-visible map bits set"); `INCLUDE` cria um "covering index" (`CREATE INDEX tab_x_y ON tab(x) INCLUDE (y)`); cautela: colunas extras "bloat the size of the index, thus potentially slowing searches" |
+| F21 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 20.4.1 (Resource Consumption, Memory): `shared_buffers` | https://www.postgresql.org/docs/16/runtime-config-resource.html | 2026-11-11 | doc oficial | configuração / memória | "Sets the amount of memory the database server uses for shared memory buffers"; "The default is typically 128 megabytes"; "If you have a dedicated database server with 1GB or more of RAM, a reasonable starting value for shared_buffers is 25% of the memory in your system"; "because PostgreSQL also relies on the operating system cache, it is unlikely that an allocation of more than 40% of RAM to shared_buffers will work better than a smaller amount"; "This parameter can only be set at server start" |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
