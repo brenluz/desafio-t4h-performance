@@ -65,6 +65,7 @@ Regras que valem aqui também:
 | 2026-11-09 | Diagnóstico 06 (feito pelo Claude Code a pedido): `vendas-por-dia` = 81% do banco; P14 (troca de plano em 5 de 725 janelas, 5,5× mais CPU), P15 (4.300 visitas à tabela de itens por chamada), P16 (`shared_buffers` menor que os dados quentes) | `ef11003`, `2dff575` |
 | 2026-11-11 | Pré-teste do índice que cobre (refeito com desenho A-B-A); hipótese do experimento 13 escrita antes da mudança | `822185e`, `7f51da7` |
 | 2026-11-11 | Experimento 12 remedido no mesmo preparo do 13 (`down -v`): 194,89 req/s; 8 janelas com `Seq Scan` | `ec88a76`, `36fcaea` |
+| 2026-11-11 | Experimento 13 (feito pelo Claude Code a pedido): índice que cobre; +12,8% req/s, p95/p99 −16%, p99 de `vendas-por-dia` −45%; P14 resolvido junto (725/725 janelas com `Index Only Scan`) | `982f6c2`, `ded6504`, `6e10cd7` |
 
 ## Ambiente
 
@@ -1394,7 +1395,7 @@ Por rota (mediana das medianas; chamadas por execução):
 
 ### 13-indice-cobrindo-itens
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido.**
+- **Status:** aplicada e medida — ganho em vazão e cauda; P14 resolvido junto. **Implementado e medido pelo Claude Code a pedido.**
 - **Problema:** P15 (Diagnóstico 06): `vendas-por-dia` (81% do tempo do banco) visita a tabela `itens_pedido` ~4.300 vezes por chamada só para ler `quantidade` e `preco_unitario_centavos`. Efeito colateral esperado em P14 (troca de plano).
 - **Pré-teste (fatos, `diagnostico/18-indice-cobrindo/`; índice criado dentro de transação com `ROLLBACK`, conferido que só os 2 índices originais de `itens_pedido` ficaram):**
   - `pre-teste.txt` / `pre-teste-bruto.txt` (10/11): com o índice `itens_pedido (pedido_id) INCLUDE (quantidade, preco_unitario_centavos)` no lugar do atual, **as 725 janelas** usam `Index Only Scan` com `Heap Fetches: 0` (antes: 706 `Index Scan` + 19 `Seq Scan`, `planos-antes.txt`); **resultados das 725 janelas idênticos** (5.075 linhas, 0 diferenças); uma janela que hoje troca para `Seq Scan` (2024-01-31..02-06) passa a usar o índice; `pedidos-do-cliente` continua usando o índice por `pedido_id`. Índice novo: **45 MB** (o atual tem 21 MB).
@@ -1410,16 +1411,68 @@ Por rota (mediana das medianas; chamadas por execução):
 - **Fonte da ideia:** F20 (PostgreSQL 16, 11.9): "index-only scans, which can answer queries from an index alone without any heap access"; o `INCLUDE` cria um "covering index" com colunas de "payload" (`CREATE INDEX tab_x_y ON tab(x) INCLUDE (y)`); só compensa se boa parte das páginas estiver marcada como visível no mapa de visibilidade; **cautela da própria documentação:** colunas extras "bloat the size of the index, thus potentially slowing searches" e "there is little point in including payload columns in an index unless the table changes slowly enough". Aqui as duas colunas incluídas são inteiros (estreitas) e a tabela não muda.
 - **Por que substituir e não somar:** os dois índices teriam a mesma primeira coluna; manter os dois só gastaria espaço e escrita. O novo atende as mesmas buscas por `pedido_id` (inclusive `pedidos-do-cliente`).
 - **Cuidados de contrato:** consulta igual (só muda o plano); resultados provados iguais nas 725 janelas.
-- **Mudança:** `banco/10-indice-itens-cobrindo.sql` (cria o novo, remove `itens_pedido_pedido_id_idx` do experimento 01) — commit `<preencher>`
+- **Mudança:** `banco/10-indice-itens-cobrindo.sql` (cria o novo, remove `itens_pedido_pedido_id_idx` do experimento 01) — commit `982f6c2`. Evidência em `ded6504` (commit medido). Resultados em `6e10cd7`.
 - **Custo esperado:** +24 MB de índice (45 contra 21); escrita em `itens_pedido` um pouco mais cara (índice maior); o mapa de visibilidade precisa estar em dia para o `Index Only Scan` não visitar a tabela (aqui o autovacuum cuida, Diagnóstico 03).
 - **Antes:** experimento 12 **remedido em 11/11** (o experimento 12 é de 09/11, outro dia), com o mesmo preparo que o 13 terá: banco recriado com `down -v`, 90 s para o autovacuum, contrato conferido. Nessa amostra de estatísticas, **8** das 725 janelas usam o plano com `Seq Scan` (`diagnostico/18-indice-cobrindo/planos-antes-1111.txt`). Commit medido `7f51da7`, resultados em `ec88a76`:
   - [`resultados/20261111-170206-12-sem-paralelismo-remedido`](../resultados/20261111-170206-12-sem-paralelismo-remedido/resumo.txt): 188,67 req/s, p95 490,0 ms, p99 794,1 ms; `vendas-por-dia` p99 1.469,1 ms
   - [`resultados/20261111-170326-12-sem-paralelismo-remedido`](../resultados/20261111-170326-12-sem-paralelismo-remedido/resumo.txt): 201,09 req/s, p95 407,8 ms, p99 690,8 ms; `vendas-por-dia` p99 1.113,1 ms
   - [`resultados/20261111-170447-12-sem-paralelismo-remedido`](../resultados/20261111-170447-12-sem-paralelismo-remedido/resumo.txt): 194,89 req/s, p95 409,3 ms, p99 700,8 ms; `vendas-por-dia` p99 1.541,3 ms
   - **Mediana: 194,89 req/s**, p95 409,3 ms, p99 700,8 ms; `vendas-por-dia` mediana 495,8 ms, p99 1.469,1 ms. Mesmo código do 12 de 09/11 (227,59 req/s): diferença do ambiente/dia (ver "Limites").
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+#### Evidência
+
+- Log da criação do banco: `running /docker-entrypoint-initdb.d/10-indice-itens-cobrindo.sql`; 90 s para o autovacuum; contrato conferido antes de medir.
+- `diagnostico/18-indice-cobrindo/planos-depois.txt`: **725 de 725 janelas** com `Index Only Scan using itens_pedido_pedido_id_inclui_idx` (antes, na amostra de estatísticas do "antes": 717 `Index Scan` + 8 `Seq Scan`). Como o banco foi recriado, esta é uma **nova** amostra de estatísticas, e mesmo assim nenhuma janela trocou de plano.
+- `explain-depois.txt`: só existe o índice novo (45 MB) além da chave primária; `vendas-por-dia` com `Heap Fetches: 0`; `pedidos-do-cliente` usa o índice novo (`Index Scan`, 0,157 ms).
+
+#### Medição sob carga (11/11, mesma sessão do "antes")
+
+- **Contrato:** mantido nas 3 execuções
+- **Depois:** commit `ded6504`, pastas:
+  - [`resultados/20261111-170935-13-indice-cobrindo-itens`](../resultados/20261111-170935-13-indice-cobrindo-itens/resumo.txt)
+  - [`resultados/20261111-171055-13-indice-cobrindo-itens`](../resultados/20261111-171055-13-indice-cobrindo-itens/resumo.txt)
+  - [`resultados/20261111-171216-13-indice-cobrindo-itens`](../resultados/20261111-171216-13-indice-cobrindo-itens/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 170935 | 229.42 | 85.2 ms | 304.0 ms | 509.8 ms | 0.00% | 100.1% | 456.8 MiB | 26.7% | 27.1 MiB |
+| 171055 | 219.74 | 86.0 ms | 345.6 ms | 588.4 ms | 0.00% | 100.2% | 459.1 MiB | 26.5% | 27.7 MiB |
+| 171216 | 210.80 | 86.5 ms | 386.3 ms | 593.3 ms | 0.00% | 98.1% | 455.7 MiB | 28.4% | 27.7 MiB |
+| **Mediana** | **219.74** | **86.0 ms** | **345.6 ms** | **588.4 ms** | — | **100.1%** | **456.8 MiB** | **26.7%** | **27.7 MiB** |
+
+| Métrica (mediana das 3) | 12 remedido (11/11) | 13-indice-cobrindo-itens | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 194.89 | 219.74 | **+12,8%** (faixas 188,67–201,09 → 210,80–229,42, sem sobreposição) |
+| p95 geral | 409.3 ms | 345.6 ms | −16% (faixas 407,8–490,0 → 304,0–386,3 ms, sem sobreposição) |
+| p99 geral | 700.8 ms | 588.4 ms | −16% (faixas 690,8–794,1 → 509,8–593,3 ms, sem sobreposição) |
+| Mediana geral | 88.1 ms | 86.0 ms | ≈ (−2%) |
+| Banco CPU média | 98.2% | 100.1% | ≈ no teto |
+| Banco mem média | 487.2 MiB | 456.8 MiB | −30 MiB (memória do container inclui cache de arquivos; não interpretar como efeito do índice) |
+| API CPU média | 22.6% | 26.7% | sobe com as req/s |
+
+Por rota (mediana das medianas):
+
+| Rota | 12 remedido | 13 | Variação |
+| --- | --- | --- | --- |
+| `vendas-por-dia` | 495.8 ms (p95 809.8, p99 1469.1) | 396.7 ms (p95 615.1, p99 807.1) | **mediana −20%, p95 −24%, p99 −45%**, com 13% mais chamadas (928–983 → 1041–1117) |
+| `pedidos-do-cliente` | 90.0 ms | 92.5 ms | **+2,8%** (faixas 89,6–90,1 → 92,4–93,1 ms, sem sobreposição: piora pequena, mas consistente) |
+| `pedidos-por-status` | 96.3 ms | 93.8 ms | −3% |
+| `busca-produtos` | 91.0 ms | 88.9 ms | −2% |
+| `cliente` / `cliente-por-email` | 14.9 / 17.3 ms | 14.8 / 15.5 ms | ≈ |
+| `top-produtos` | 72.8 ms (bimodal: 73,6 / 15,2 / 72,8) | 15.4 ms | não interpretar: a mediana dessa rota oscila entre os degraus de ~15 e ~75 ms |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| Planos das 725 janelas todos com `Index Only Scan`, mesmo com nova amostra de estatísticas | confirmada (725/725; antes 8 com `Seq Scan`) |
+| `vendas-por-dia`: mediana cai pouco (~15–25%), p99 cai bastante | confirmada: mediana −20%, **p99 −45%** |
+| req/s sobe de forma moderada; banco no teto | confirmada: +12,8%; 100,1% |
+| `pedidos-do-cliente` sem piora | **refutada por pouco**: +2,8% (~2,5 ms), consistente nas 3 execuções |
+
+**Por que `pedidos-do-cliente` piorou um pouco (hipótese):** essa rota também usa o índice por `pedido_id`, mas precisa de colunas que não estão nele (`id`, `produto_id`), então continua visitando a tabela; e agora o índice é mais largo (45 MB contra 21 MB), com menos entradas por página. É o custo que a documentação avisa (F20: colunas extras "bloat the size of the index, thus potentially slowing searches"). Pequeno perto do ganho em `vendas-por-dia`.
+
+- **Conclusão:** aplicada e medida, com ganho: +12,8% de vazão, p95 e p99 −16%, e a cauda de `vendas-por-dia` quase pela metade (p99 −45%), com resultados provados iguais nas 725 janelas. O efeito mais importante foi colateral: **P14 sumiu**, porque com o caminho por índice mais barato o planejador deixou de escolher a varredura completa em qualquer janela, inclusive com uma nova amostra de estatísticas. Custo: +24 MB de índice e +2,8% em `pedidos-do-cliente`.
+- **Gargalo que apareceu depois:** o banco segue no teto; `vendas-por-dia` (~400 ms) continua a rota mais cara. Próximo no plano: P16 (`shared_buffers`). P14 não precisa mais do experimento de configuração (`random_page_cost`): resolvido aqui.
 
 ## Fontes
 
