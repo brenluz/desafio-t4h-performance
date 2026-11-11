@@ -71,7 +71,8 @@ Regras que valem aqui também:
 | 2026-11-11 | Experimento 15 (feito pelo Claude Code a pedido): `shared_buffers` 192 MB; 257 req/s, 14% abaixo de 256 MB; configuração devolvida para 256 MB | `485ff12`, `5ab3293`, `43ad8d4` |
 | 2026-11-11 | Pré-teste do índice que cobre `pedidos` (variante sem `criado_em` não serve, como diz F20; com `criado_em`: 725/725 janelas só com índices, ~20–33% menos CPU); hipótese do experimento 16 escrita antes da mudança | `230d196`, `5f08b5b` |
 | 2026-11-11 | Experimento 16 (feito pelo Claude Code a pedido): índice que cobre `pedidos`; vazão ≈ igual (−1,5%): ganho em `vendas-por-dia` anulado por disputa de cache com as outras rotas; decisão pendente | `8fe5b84`, `de26b85`, `eb4698a` |
-| 2026-11-11 | Experimento 16 desfeito (decisão do Breno); hipóteses do estudo de custo escritas antes de medir | `1081ea0`, este diário |
+| 2026-11-11 | Experimento 16 desfeito (decisão do Breno); hipóteses do estudo de custo escritas antes de medir | `1081ea0`, `ec05985` |
+| 2026-11-11 | Estudo de custo (feito pelo Claude Code a pedido): versão final com limites originais, metade e um quarto da CPU, menos memória, e a original, na mesma sessão. Final: 109× a vazão da original com os mesmos limites; com um quarto da CPU, 29× e 71% a menos de custo por hora | `f631d67`, `92c9ea5`, `c734a97`, `ae80603`, `ae925d2`, `34b9997` |
 
 ## Ambiente
 
@@ -1731,8 +1732,63 @@ Por rota (mediana das medianas):
   - Memória: a memória fixa do banco é ~318 MiB (experimento 14) e cabe em 384 MB; a API usa ~28 MiB e cabe em 128 MB. Reduzir memória não deve mudar a vazão. Risco: na criação do banco (geração dos dados) o container encosta no limite (Diagnóstico 05); com 384 MB isso deve só reduzir o cache de arquivos.
   - A versão final com **um quarto** da CPU deve continuar dezenas de vezes acima da original com toda a CPU.
 - **O que derrubaria as hipóteses:** queda de vazão muito maior que a proporção da CPU (efeito não linear do throttling), a API virando o limite antes do banco, ou o banco sendo morto por memória com 384 MB.
-- **Conversão para dinheiro (estimativa, não cotação):** F22 (AWS Fargate, preços por segundo do exemplo da própria página, Linux/x86, US East): **US$ 0,000011244 por vCPU-segundo** e **US$ 0,000001235 por GB-segundo**. Custo por hora de uma configuração = (CPUs × 0,000011244 + GB × 0,000001235) × 3.600; custo por milhão de requisições = custo por hora ÷ (req/s × 3.600) × 1.000.000. **Limites da conversão:** o Fargate só aceita tamanhos fixos (mínimo 0,25 vCPU com 0,5 GB, F22), então os limites deste estudo não são tarefas válidas lá; e os preços foram lidos no exemplo da página porque a tabela de preços não carregou. Serve para comparar configurações entre si, não como orçamento.
-- **Resultados:** `<preencher>`
+- **Conversão para dinheiro (estimativa, não cotação):** F22 (AWS Fargate, Linux/x86, US East): **US$ 0,04048 por vCPU por hora** e **US$ 0,004445 por GB por hora**, conferidos pelo Breno na tabela de preços da página em 11/11 (iguais aos valores por segundo do exemplo da página × 3.600). Custo por hora de uma configuração = CPUs × 0,04048 + GB × 0,004445 (GB = 1024³ bytes, como na página: 512 MB = 0,5 GB); custo por milhão de requisições = custo por hora ÷ (req/s × 3.600) × 1.000.000. **Limites da conversão:** o Fargate só aceita tamanhos fixos (mínimo 0,25 vCPU com 0,5 GB, F22), então os limites deste estudo não são tarefas válidas lá. Serve para comparar configurações entre si, não como orçamento.
+
+### Resultados do estudo de custo (11/11, 18:45–19:30, mesma sessão)
+
+Todas as 15 medições com `arquivos alterados sem commit: 0` e contrato mantido; os limites de cada uma estão no `contexto.txt` (`banco: cpus=... memoria=...`).
+
+**Pastas e commits medidos:**
+
+- `custo-00-limites-originais` (commit `ec05985`, resultados `f631d67`): [`184510`](../resultados/20261111-184510-custo-00-limites-originais/resumo.txt), [`184631`](../resultados/20261111-184631-custo-00-limites-originais/resumo.txt), [`184752`](../resultados/20261111-184752-custo-00-limites-originais/resumo.txt)
+- `custo-01-metade-cpu` (commit `090a390`, resultados `92c9ea5`): [`185235`](../resultados/20261111-185235-custo-01-metade-cpu/resumo.txt), [`185357`](../resultados/20261111-185357-custo-01-metade-cpu/resumo.txt), [`185519`](../resultados/20261111-185519-custo-01-metade-cpu/resumo.txt)
+- `custo-02-um-quarto-cpu` (commit `536c329`, resultados `c734a97`): [`190144`](../resultados/20261111-190144-custo-02-um-quarto-cpu/resumo.txt), [`190306`](../resultados/20261111-190306-custo-02-um-quarto-cpu/resumo.txt), [`190428`](../resultados/20261111-190428-custo-02-um-quarto-cpu/resumo.txt)
+- `custo-03-metade-cpu-menos-memoria` (commit `072634d`, resultados `ae80603`): [`190903`](../resultados/20261111-190903-custo-03-metade-cpu-menos-memoria/resumo.txt), [`191023`](../resultados/20261111-191023-custo-03-metade-cpu-menos-memoria/resumo.txt), [`191144`](../resultados/20261111-191144-custo-03-metade-cpu-menos-memoria/resumo.txt)
+- `custo-base-original` (commit `1b5bd26`, a aplicação original; resultados `34b9997`): [`192602`](../resultados/20261111-192602-custo-base-original/resumo.txt), [`192747`](../resultados/20261111-192747-custo-base-original/resumo.txt), [`192935`](../resultados/20261111-192935-custo-base-original/resumo.txt)
+- Limites devolvidos aos originais no commit `ae925d2`.
+
+**Por execução (req/s; mediana / p95 / p99 em ms):**
+
+| Configuração | Execução 1 | Execução 2 | Execução 3 |
+| --- | --- | --- | --- |
+| custo-00 (final, 1 / 0,5 CPU) | 244,19; 81,7 / 282,6 / 478,4 | 268,61; 77,8 / 213,7 / 399,3 | 260,62; 78,6 / 270,5 / 411,9 |
+| custo-01 (final, 0,5 / 0,25 CPU) | 120,16; 99,6 / 703,4 / 1.030,1 | 110,60; 99,7 / 897,7 / 1.199,3 | 123,59; 98,5 / 797,2 / 1.099,1 |
+| custo-02 (final, 0,25 / 0,125 CPU) | 64,22; 199,0 / 998,3 / 2.289,3 | 70,57; 99,2 / 1.296,1 / 2.839,5 | 68,44; 100,2 / 1.298,0 / 2.855,2 |
+| custo-03 (final, 0,5·384 MB / 0,25·128 MB) | 136,50; 96,5 / 590,2 / 1.086,8 | 141,12; 95,2 / 532,0 / 1.088,8 | 140,84; 95,9 / 591,2 / 1.001,2 |
+| base original (1 / 0,5 CPU) | 2,27; 1.399,3 / 30.992,8 / 37.251,2 | 2,38; 1.505,1 / 30.195,8 / 33.843,3 | 2,42; 1.397,2 / 29.241,7 / 35.454,8 |
+
+**Medianas e custo:**
+
+| Configuração (banco / API) | Recursos somados | req/s | mediana | p95 | p99 | US$/hora | US$ por milhão de req. |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Original**, limites originais (1·512 MB / 0,5·256 MB) | 1,5 CPU · 0,75 GB | **2,38** | 1.399,3 ms | 30.195,8 ms | 35.454,8 ms | 0,06405 | **7,48** |
+| **Final**, limites originais | 1,5 CPU · 0,75 GB | **260,62** | 78,6 ms | 270,5 ms | 411,9 ms | 0,06405 | **0,068** |
+| Final, metade da CPU (0,5 / 0,25) | 0,75 CPU · 0,75 GB | 120,16 | 99,6 ms | 797,2 ms | 1.099,1 ms | 0,03369 | 0,078 |
+| Final, um quarto da CPU (0,25 / 0,125) | 0,375 CPU · 0,75 GB | 68,44 | 100,2 ms | 1.296,1 ms | 2.839,5 ms | **0,01851** | 0,075 |
+| Final, metade da CPU e menos memória (0,5·384 MB / 0,25·128 MB) | 0,75 CPU · 0,5 GB | 140,84 | 95,9 ms | 590,2 ms | 1.086,8 ms | 0,03258 | **0,064** |
+
+Contas (F22): ex. limites originais = 1,5 × 0,04048 + 0,75 × 0,004445 = 0,06405 US$/h; por milhão na versão final = 0,06405 ÷ (260,62 × 3.600) × 10⁶ = 0,068.
+
+**Comparações principais (todas na mesma sessão):**
+
+- **Mesmos limites:** a versão final faz **109× mais requisições por segundo** que a original (260,62 contra 2,38), com p95 de 0,27 s contra 30,2 s. Custo por milhão de requisições: **US$ 0,068 contra US$ 7,48 (110× menor)**.
+- **Um quarto da CPU:** a versão final ainda faz **29× mais** requisições que a original com toda a CPU (68,44 contra 2,38), com p95 de 1,3 s contra 30,2 s, a **71% a menos de custo por hora** (US$ 0,01851 contra 0,06405).
+- **Metade da CPU e menos memória:** 59× mais requisições que a original, **49% a menos de custo por hora**, e o menor custo por milhão de requisições medido (US$ 0,064).
+
+**Previsões × resultado:**
+
+| Previsão | Resultado |
+| --- | --- |
+| req/s cai quase na proporção da CPU do banco (~150 com metade, ~75 com um quarto) | confirmada, um pouco abaixo: 46% (120,16) e 26% (68,44) dos 260,62 |
+| Latência piora mais que a vazão (degraus de throttling mais longos, F16) | confirmada: p99 0,41 → 1,10 → 2,84 s |
+| O banco continua sendo o limite, não a API | confirmada: o banco usou ~97–98% da sua cota em todas (ex.: 24,5% de 0,25 CPU); a API no máximo ~78% da dela (9,8% de 0,125) |
+| Menos memória não muda a vazão | **não confirmada, no sentido oposto**: custo-03 fez **mais** que custo-01 (140,84 contra 120,16; faixas 136,5–141,1 e 110,6–123,6 sem sobreposição). **Sem explicação**; mediu ~15 min depois, então pode ser deriva do ambiente. Não atribuo à memória sem um teste que isole isso. |
+| Com 384 MB o banco não é morto por memória | confirmada: `oom_kill 0`; `memory.peak` encostou nos 384 MB e o kernel liberou cache de arquivos; memória que não pode ser liberada ~293 MiB (anon 31 + shmem 262) |
+| A final com um quarto da CPU fica dezenas de vezes acima da original | confirmada: 29× |
+
+**Leitura:** a versão final aguenta **mais de 100× a carga com o mesmo custo**, ou **a mesma carga da original com uma fração mínima do recurso**: para os 2,38 req/s da aplicação original, um quarto da CPU já sobra. O custo por milhão de requisições fica praticamente igual (US$ 0,064–0,078) em todas as configurações da versão final, porque a vazão cai junto com a CPU: **cortar CPU não barateia cada requisição, só a capacidade total**. A escolha de limite é uma decisão de quanta carga se espera e de quanta latência se aceita (p99 de 0,41 s com a CPU original contra 2,84 s com um quarto). A memória pode cair (512 → 384 MB no banco, 256 → 128 MB na API) sem perda medida.
+
+**Deriva no mesmo dia (para "Limites"):** a versão final com os limites originais fez 260,62 req/s às 18:45, contra 298,89 req/s no experimento 14 às 17:30, com o mesmo código e a mesma configuração (13% a menos, ~1 h depois). Por isso este estudo foi feito numa sessão única: as comparações acima são entre medições de 18:45 a 19:30.
 
 ## Fontes
 
@@ -1758,7 +1814,7 @@ Por rota (mediana das medianas):
 | F19 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 15 Parallel Query e 15.1 How Parallel Query Works | https://www.postgresql.org/docs/16/parallel-query.html e https://www.postgresql.org/docs/16/how-parallel-query-works.html | 2026-11-09 | doc oficial | paralelismo | "PostgreSQL can devise query plans that can leverage multiple CPUs in order to answer queries faster"; "Many queries cannot benefit from parallel query"; no `Gather` o líder pede "background worker processes" e "must also read all of the tuples generated by the workers" |
 | F20 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.9 Index-Only Scans and Covering Indexes | https://www.postgresql.org/docs/16/indexes-index-only-scans.html | 2026-11-11 | doc oficial | índices | sobre índices de expressão: "PostgreSQL's planner is currently not very smart about such cases. It considers a query to be potentially executable by index-only scan only when all columns needed by the query are available from the index", com a contorno `CREATE INDEX tab_f_x ON tab (f(x)) INCLUDE (x)`; "index-only scans, which can answer queries from an index alone without any heap access"; "The query must reference only columns stored in the index"; a vantagem depende do mapa de visibilidade ("it will be a win only if a significant fraction of the table's heap pages have their all-visible map bits set"); `INCLUDE` cria um "covering index" (`CREATE INDEX tab_x_y ON tab(x) INCLUDE (y)`); cautela: colunas extras "bloat the size of the index, thus potentially slowing searches" |
 | F21 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 20.4.1 (Resource Consumption, Memory): `shared_buffers` | https://www.postgresql.org/docs/16/runtime-config-resource.html | 2026-11-11 | doc oficial | configuração / memória | "Sets the amount of memory the database server uses for shared memory buffers"; "The default is typically 128 megabytes"; "If you have a dedicated database server with 1GB or more of RAM, a reasonable starting value for shared_buffers is 25% of the memory in your system"; "because PostgreSQL also relies on the operating system cache, it is unlikely that an allocation of more than 40% of RAM to shared_buffers will work better than a smaller amount"; "This parameter can only be set at server start" |
-| F22 | Amazon Web Services | AWS Fargate Pricing | https://aws.amazon.com/fargate/pricing/ | 2026-11-11 | caso de mercado (preço público) | custo | Exemplo 1 da página: "Using the Linux/X86 pricing for US East (N. Virginia) Region where CPU cost: $0.000011244 per vCPU second, memory cost: $0.000001235 per GB per second"; "Pricing is calculated per second with a 1-minute minimum"; tamanhos aceitos, ex.: 0,25 vCPU com "0.5 GB, 1 GB, and 2 GB", 0,5 vCPU com "Min. 1 GB and Max. 4 GB". **A tabela de preços da página não carregou (página dinâmica); os valores vêm do exemplo da própria página.** |
+| F22 | Amazon Web Services | AWS Fargate Pricing | https://aws.amazon.com/fargate/pricing/ | 2026-11-11 | caso de mercado (preço público) | custo | **Tabela de preços (Linux/x86, US East), conferida pelo Breno no navegador em 11/11:** "per vCPU per hour $0.04048", "per GB per hour $0.004445". Exemplo 1 da página (lido por IA, bate com a tabela): "Using the Linux/X86 pricing for US East (N. Virginia) Region where CPU cost: $0.000011244 per vCPU second, memory cost: $0.000001235 per GB per second"; "Pricing is calculated per second with a 1-minute minimum"; tamanhos aceitos, ex.: 0,25 vCPU com "0.5 GB, 1 GB, and 2 GB", 0,5 vCPU com "Min. 1 GB and Max. 4 GB". (na leitura por IA a tabela não carregou, por ser dinâmica; os valores do exemplo × 3.600 são iguais aos da tabela conferida) |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
@@ -1819,6 +1875,7 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 - `cpu_media` subestima um pouco a carga: o coletor do `medir.sh` continua amostrando por alguns segundos depois do fim da carga, e as últimas amostras de cada `recursos.csv` têm o banco quase parado (ex.: 0,05%, 6,90%). Afeta todas as medições do mesmo jeito, então as comparações continuam válidas.
 - Mensagem `date: write error: Broken pipe (os error 32)` no fim do `medir.sh`: o `date` do coletor (uutils coreutils, Ubuntu 26.04) reclama quando o laço é encerrado no meio de uma escrita. Inofensiva: conferido que nenhum `recursos.csv` tem linha malformada (68–86 amostras por execução) e o `resumo.txt` vem do k6, não do coletor.
 - **O ambiente muda entre dias:** o mesmo código (experimento 03) deu 5,63 req/s em 05/11 e 8,44 req/s em 09/11 (+50%). Causa não identificada. Só comparar medições da mesma sessão; no mesmo dia também houve deriva (pool: 10,3 req/s às 19:11 nas medições descartadas contra 9,4 às 19:41). **Plano:** rodada final no fim do trabalho, na mesma sessão, com linha de base e versão final (3 medições cada), para a tabela-resumo do artigo.
+- **Deriva no mesmo dia:** em 11/11, a versão final com os mesmos limites fez 298,89 req/s às 17:30 (experimento 14) e 260,62 req/s às 18:45 (estudo de custo): −13% em ~1 h, sem mudança. Comparações só valem dentro de uma janela curta de tempo; o estudo de custo foi feito numa sessão única por isso.
 - **Throttling do limite de CPU (CFS):** com o banco no teto, o container é limitado em ~metade dos períodos de 100 ms (experimento 09: 2.291 de 4.501; F16), e os tempos sob carga ficam em degraus de ~100 ms. Ganhos de poucos ms por consulta podem não aparecer; o que aparece é reduzir a CPU total do banco. Os contadores do `cpu.stat` são acumulados desde a criação do container, não da janela de medição.
   - **Do experimento 09 ao 11** as rotas baratas ficaram presas no degrau de ~100 ms (medianas 95–103 ms), embora no `EXPLAIN` as consultas levassem menos de 1 ms a poucos ms: abaixo de ~100 ms, quem definia a latência sob carga era o limite de CPU do container, não o plano. Por isso os experimentos 10 e 11 subiram a vazão sem mexer na mediana (104,8 → 100,7 → 97,9 ms).
   - **No experimento 12** (sem paralelismo) as rotas baratas saíram do degrau (~93 → ~11 ms) com o banco ainda limitado em 97,8% dos períodos. Hipótese **não verificada**: com 3 processos por `vendas-por-dia`, a cota acabava cedo em cada período e tudo ficava parado pelo resto dele; sem paralelismo, o consumo se espalha e as janelas paradas ficam mais curtas. Para confirmar, faltaria medir a duração das janelas de throttling (`throttled_usec` por período).
@@ -1855,3 +1912,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | **A pedido, implementou e rodou o experimento 12** (sem paralelismo): pré-teste de planos e de CPU por consulta via cgroup, hipótese, mudança no compose, evidência, contrato, medições e commits; abriu F18 e F19 | Saídas brutas em `diagnostico/16-paralelismo/`; números conferíveis nos arquivos |
 | 2026-11-09 | Claude Code | A pedido, escreveu o rascunho de `proximos-testes.md` (7 fichas, só com números de pré-testes/diagnósticos) e fez o Diagnóstico 06 (compose que preserva o experimento 12, estatísticas zeradas antes da carga, planos das 725 janelas, custo do plano alternativo) | Revisar as fichas; saídas brutas em `diagnostico/17-diagnostico-06/` |
 | 2026-11-10/11 | Claude Code | **A pedido, conduziu o experimento 13** (índice que cobre): remedição do 12, recontagem de planos, pré-teste de equivalência e de CPU (refeito em A-B-A quando o primeiro resultado se mostrou inconsistente), hipótese; abriu F20 | Saídas brutas em `diagnostico/18-indice-cobrindo/` |
+| 2026-11-11 | Claude Code | **A pedido, conduziu os experimentos 14, 15 e 16 e o estudo de custo**: diagnóstico de cache por tabela, hipóteses, mudanças de configuração e de limites, medições, contas de custo; abriu F21 e F22 (F22 conferida pelo Breno na tabela de preços) | Saídas brutas em `diagnostico/19-shared-buffers/`, `diagnostico/20-indice-cobrindo-pedidos/` e nas pastas `resultados/*-custo-*`; contas reproduzíveis com a fórmula registrada |
