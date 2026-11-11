@@ -1,0 +1,17 @@
+Medição: custo-00-limites-originais
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        14681
+Requisições/s:      244.19
+Tempo de resposta:  mediana 81.7 ms | p95 282.6 ms | p99 478.4 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               3668      17.3 ms       97.5 ms       103.6 ms      0.0%    
+cliente-por-email     2178      18.4 ms       98.4 ms       104.0 ms      0.0%    
+pedidos-do-cliente    3009      90.2 ms       183.9 ms      202.7 ms      0.0%    
+pedidos-por-status    2135      90.0 ms       187.9 ms      203.0 ms      0.0%    
+busca-produtos        2217      85.1 ms       108.0 ms      196.5 ms      0.0%    
+vendas-por-dia        1202      297.4 ms      506.5 ms      706.2 ms      0.0%    
+top-produtos          272       18.9 ms       96.9 ms       103.7 ms      0.0%    
