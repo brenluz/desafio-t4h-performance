@@ -54,13 +54,13 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 - **Como testaria:** mudança no middleware, 3 medições, olhando a CPU da API; depois, uma medição com o limite da API reduzido.
 - **O que precisaria:** confirmar que o conteúdo do log não é usado por ninguém (ele não faz parte do contrato da API, mas é um comportamento observável).
 
-## 7. Índice que cobre `pedidos` para `vendas-por-dia`
+## 7. Índice que cobre `pedidos` com um cache maior
 
-- **De onde veio:** experimento 14 (`diagnostico/19-shared-buffers/cache-256MB.txt`): mesmo com tudo em cache, `vendas-por-dia` visita ~1.000 páginas da tabela `pedidos` por chamada só para ler `id` e `status` (1,35 milhão de acertos por minuto em `pedidos`). Mesma ideia do experimento 13, aplicada à outra tabela (F20).
-- **A ideia:** `CREATE INDEX ON pedidos ((criado_em::date)) INCLUDE (id, status)`, para a consulta fazer `Index Only Scan` em `pedidos` também e não tocar nenhuma tabela.
-- **O que acredito que ganharia (hipótese):** menos CPU por chamada da rota mais cara; diferentemente do experimento 14, sem custo de memória fixa (só o índice).
-- **Como testaria:** pré-teste com `ROLLBACK` e CPU por consulta em A-B-A, como em `diagnostico/18-indice-cobrindo/`; 3 medições.
-- **O que precisaria:** nada além do que existe.
+- **De onde veio:** experimento 16 (feito): o índice que cobre `pedidos` cortou 93% das visitas de `vendas-por-dia` à tabela, mas não aumentou a vazão, porque os +20,5 MB do índice disputaram o `shared_buffers` de 256 MB com páginas de `pedidos` que as outras rotas usam.
+- **A ideia:** repetir o experimento 16 com `shared_buffers` de ~288 MB (o suficiente para o índice novo e o conjunto quente do experimento 14).
+- **O que acredito que ganharia (hipótese):** o ganho de `vendas-por-dia` sem a perda das outras rotas, em troca de ~32 MiB a mais de memória fixa (que, pelo critério de custo, precisaria se pagar em vazão).
+- **Como testaria:** mudança de configuração + o diagnóstico de cache de `diagnostico/19-shared-buffers/`, 3 medições contra o experimento 14.
+- **O que precisaria:** nada além do que existe; atenção ao limite de 512 MB do container (memória fixa passaria de ~350 MiB).
 
 ## 8. Paginação por cursor (keyset)
 

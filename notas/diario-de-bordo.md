@@ -69,7 +69,8 @@ Regras que valem aqui também:
 | 2026-11-11 | Pré-teste de cache (128 MB): 95,6% de acerto, 89% das leituras de fora vêm da tabela `pedidos`; hipótese do experimento 14 escrita antes da mudança | diagnóstico e hipótese antes de `28c1ceb` |
 | 2026-11-11 | Experimento 14 (feito pelo Claude Code a pedido): `shared_buffers` 256 MB; acerto 99,89%; +36% req/s, p95 −41%, `vendas-por-dia` −46%; custo +152 MiB de memória fixa | `28c1ceb`, `ba50fd0`, `5e1f4ce` |
 | 2026-11-11 | Experimento 15 (feito pelo Claude Code a pedido): `shared_buffers` 192 MB; 257 req/s, 14% abaixo de 256 MB; configuração devolvida para 256 MB | `485ff12`, `5ab3293`, `43ad8d4` |
-| 2026-11-11 | Pré-teste do índice que cobre `pedidos` (variante sem `criado_em` não serve, como diz F20; com `criado_em`: 725/725 janelas só com índices, ~20–33% menos CPU); hipótese do experimento 16 escrita antes da mudança | `diagnostico/20-indice-cobrindo-pedidos/`, este diário |
+| 2026-11-11 | Pré-teste do índice que cobre `pedidos` (variante sem `criado_em` não serve, como diz F20; com `criado_em`: 725/725 janelas só com índices, ~20–33% menos CPU); hipótese do experimento 16 escrita antes da mudança | `230d196`, `5f08b5b` |
+| 2026-11-11 | Experimento 16 (feito pelo Claude Code a pedido): índice que cobre `pedidos`; vazão ≈ igual (−1,5%): ganho em `vendas-por-dia` anulado por disputa de cache com as outras rotas; decisão pendente | `8fe5b84`, `de26b85`, `eb4698a` |
 
 ## Ambiente
 
@@ -1624,7 +1625,7 @@ Faixas de req/s: 13: 210,80–229,42; **15: 242,96–259,74**; 14: 286,84–307,
 
 ### 16-indice-cobrindo-pedidos
 
-- **Status:** planejado (hipótese escrita antes da mudança). **Implementado e medido pelo Claude Code a pedido** (ideia de `proximos-testes.md`, testada a pedido do Breno).
+- **Status:** aplicada e medida — **sem ganho claro de vazão** (o ganho em `vendas-por-dia` foi anulado por perda nas outras rotas); decisão de manter ou desfazer pendente. **Implementado e medido pelo Claude Code a pedido** (ideia de `proximos-testes.md`, testada a pedido do Breno).
 - **Problema:** mesmo com tudo em cache (experimento 14), `vendas-por-dia` visita ~1.000 páginas da tabela `pedidos` por chamada (`Bitmap Heap Scan`) só para ler `id` e `status` (1,35 milhão de acertos de cache por minuto em `pedidos`, `cache-256MB.txt`).
 - **Pré-teste (fatos, `diagnostico/20-indice-cobrindo-pedidos/`; banco recriado com 256 MB; índices criados e trocados dentro de transação com `ROLLBACK`, conferido que os índices de `pedidos` voltaram ao original):**
   - **Variante sem `criado_em`** (`((criado_em::date)) INCLUDE (id, status)`): o plano **continua** com `Bitmap Heap Scan on pedidos`, sem `Index Only Scan`. É a limitação descrita em F20: o planejador só considera `Index Only Scan` quando todas as **colunas** usadas estão no índice; a consulta usa `criado_em` só dentro de `criado_em::date`, e ele não percebe.
@@ -1639,12 +1640,73 @@ Faixas de req/s: 13: 210,80–229,42; **15: 242,96–259,74**; 14: 286,84–307,
 - **Fonte:** F20 (11.9): "PostgreSQL's planner is currently not very smart about such cases. It considers a query to be potentially executable by index-only scan only when all columns needed by the query are available from the index [...] this can be worked around by adding x as an included column, for example CREATE INDEX tab_f_x ON tab (f(x)) INCLUDE (x)".
 - **Por que substituir e não somar:** o índice novo atende as mesmas buscas por `criado_em::date` que o do experimento 05; manter os dois só gastaria espaço.
 - **Cuidados de contrato:** consulta igual (só muda o plano); resultados provados iguais nas 725 janelas.
-- **Mudança:** `banco/11-indice-pedidos-dia-cobrindo.sql` (cria o novo, remove `pedidos_criado_em_dia_idx`) — commit `<preencher>`
+- **Mudança:** `banco/11-indice-pedidos-dia-cobrindo.sql` (cria o novo, remove `pedidos_criado_em_dia_idx`) — commit `8fe5b84`. Evidência em `de26b85` (commit medido). Resultados em `eb4698a`.
 - **Custo esperado:** +20,5 MB de índice (24 contra 3,5); escrita em `pedidos` um pouco mais cara; o índice disputa espaço no `shared_buffers` de 256 MB (o acerto de cache deve ser conferido).
 - **Antes:** experimento 14 (11/11 17:29–17:31, mesma sessão; mesma configuração e código que o estado atual, já que o 15 foi desfeito).
-- **Depois:** `<preencher pastas>`
-- **Resultado (medianas):** `<preencher>`
-- **Conclusão:** `<preencher>`
+
+#### Evidência (`diagnostico/20-indice-cobrindo-pedidos/`)
+
+- `planos-depois.txt`: **725 de 725 janelas** com `Index Only Scan` em `pedidos_dia_inclui_idx` **e** em `itens_pedido_pedido_id_inclui_idx` (mais um `Incremental Sort`, porque o índice já entrega as linhas em ordem de dia). Nova amostra de estatísticas.
+- `tamanho-indices.txt`: `pedidos_dia_inclui_idx` 24 MB; o índice do experimento 05 não existe mais.
+- `cache-depois.txt` (mesmo método de `diagnostico/19-shared-buffers/`), comparado com `cache-256MB.txt` do experimento 14:
+
+| | 14 (`cache-256MB.txt`) | 16 (`cache-depois.txt`) |
+| --- | --- | --- |
+| Acerto de cache | 99,89% | 99,89% |
+| `pedidos`: páginas da tabela lidas do cache (visitas) | 1.353.295 | **92.009 (−93%)** |
+| `pedidos`: páginas da tabela lidas **de fora** do cache | **0** | **13.935** |
+| `itens_pedido`: páginas da tabela lidas de fora do cache | 12.870 | 8.258 |
+| Memória fixa (anon + shmem) | ~318 MiB | ~310 MiB |
+
+- Contrato conferido antes de medir.
+
+#### Medição sob carga (11/11, mesma sessão)
+
+- **Contrato:** mantido nas 3 execuções
+- **Depois:** commit `de26b85`, pastas:
+  - [`resultados/20261111-182805-16-indice-cobrindo-pedidos`](../resultados/20261111-182805-16-indice-cobrindo-pedidos/resumo.txt)
+  - [`resultados/20261111-182926-16-indice-cobrindo-pedidos`](../resultados/20261111-182926-16-indice-cobrindo-pedidos/resumo.txt)
+  - [`resultados/20261111-183047-16-indice-cobrindo-pedidos`](../resultados/20261111-183047-16-indice-cobrindo-pedidos/resumo.txt)
+
+| Execução | req/s | mediana | p95 | p99 | erros | banco CPU média | banco mem média | API CPU média | API mem média |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 182805 | 309.70 | 71.8 ms | 192.0 ms | 297.0 ms | 0.00% | 99.7% | 419.5 MiB | 33.7% | 27.5 MiB |
+| 182926 | 294.48 | 77.1 ms | 195.9 ms | 304.0 ms | 0.00% | 97.8% | 417.1 MiB | 32.4% | 27.7 MiB |
+| 183047 | 280.17 | 79.1 ms | 199.0 ms | 380.5 ms | 0.00% | 100.5% | 416.9 MiB | 31.1% | 27.7 MiB |
+| **Mediana** | **294.48** | **77.1 ms** | **195.9 ms** | **304.0 ms** | — | **99.7%** | **417.1 MiB** | **32.4%** | **27.7 MiB** |
+
+| Métrica (mediana das 3) | 14-shared-buffers-256mb | 16-indice-cobrindo-pedidos | Variação |
+| --- | --- | --- | --- |
+| Requisições/s | 298.89 | 294.48 | **≈ (−1,5%)**: faixas 286,84–307,48 e 280,17–309,70 **se sobrepõem** |
+| Mediana geral | 73.9 ms | 77.1 ms | ≈ (+4%, faixas se sobrepõem) |
+| p95 geral | 204.8 ms | 195.9 ms | −4% (faixas 202,5–206,6 → 192,0–199,0 ms, sem sobreposição) |
+| p99 geral | 383.4 ms | 304.0 ms | −21% (faixas 315–396 e 297–381 se sobrepõem) |
+| API CPU média | 29.5% | 32.4% | ~65% da cota |
+
+As 3 execuções do 16 caem em sequência (309,70 → 294,48 → 280,17 req/s); não investigado.
+
+Por rota (mediana das medianas):
+
+| Rota | 14 | 16 | Variação |
+| --- | --- | --- | --- |
+| `vendas-por-dia` | 215.0 ms (p99 492.6) | 200.4 ms (p99 402.2) | −7% (p99 −18%) |
+| `busca-produtos` | 80.1 ms | 76.7 ms | −4% |
+| `pedidos-por-status` | 85.9 ms | 88.1 ms | +3% |
+| `pedidos-do-cliente` | 77.6 ms | 87.8 ms | **+13%** |
+| `cliente` / `cliente-por-email` / `top-produtos` | 12.6 / 12.8 / 12.9 ms | 14.9 / 15.0 / 15.6 ms | +16% a +21% (poucos ms) |
+
+#### Previsões × resultado
+
+| Previsão | Resultado |
+| --- | --- |
+| 725 janelas com `Index Only Scan` nas duas tabelas | confirmada |
+| `vendas-por-dia` cai (mediana e p99) | confirmada, menos que o pré-teste sugeria: −7% e −18% |
+| req/s sobe de forma moderada | **refutada**: ≈ igual (−1,5%, dentro da variação) |
+| Acerto de cache deve ser conferido (custo) | o acerto total ficou igual, mas `pedidos` voltou a ter leituras de fora (0 → 13.935) |
+
+**Por que o ganho do pré-teste não apareceu no sistema (hipótese, apoiada em `cache-depois.txt`):** o pré-teste mediu `vendas-por-dia` sozinha, e nela a economia é real (−93% de visitas à tabela `pedidos`, ~20–33% menos CPU por chamada). Mas o índice novo ocupa +20,5 MB do mesmo `shared_buffers` de 256 MB, que no experimento 14 cabia **exatamente** a tabela `pedidos` e os índices quentes. Com o índice maior, páginas de `pedidos` que as **outras** rotas leem (`pedidos-do-cliente` busca os pedidos do cliente na tabela; a página de `/pedidos` busca as 20 linhas) voltaram a ser expulsas do cache. `pedidos-do-cliente` ficou 13% mais lenta; `vendas-por-dia`, 7% mais rápida; na soma, empate. **Lição para o artigo:** um ganho medido numa consulta isolada não garante ganho no sistema quando a mudança disputa um recurso compartilhado (aqui, o cache).
+
+- **Conclusão:** aplicada e medida, **sem ganho de vazão** (dentro da variação), com cauda um pouco melhor (p95 −4%, p99 −21% com sobreposição) e custo de +20,5 MB de índice e +13% em `pedidos-do-cliente`. Pelo critério de "mais barato", um índice maior que não aumenta a vazão não se paga. **Decisão pendente com o Breno:** desfazer (recomendado: volta ao estado do 14, mais simples e com menos memória) ou manter pela cauda.
 
 ## Fontes
 
