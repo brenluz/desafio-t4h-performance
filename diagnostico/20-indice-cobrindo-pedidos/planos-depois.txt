@@ -1,0 +1,1 @@
+ 725 janelas | exemplo 2024-01-01 2024-01-07 | plano: > GroupAggregate > Incremental Sort > Nested Loop > Index Only Scan using pedidos_dia_inclui_idx on pedidos p > Index Only Scan using itens_pedido_pedido_id_inclui_idx on itens_pedido i

@@ -1,0 +1,8 @@
+          indexrelname           | pg_size_pretty 
+---------------------------------+----------------
+ pedidos_cliente_id_idx          | 5720 kB
+ pedidos_dia_inclui_idx          | 24 MB
+ pedidos_pkey                    | 11 MB
+ pedidos_status_criado_em_id_idx | 21 MB
+(4 rows)
+

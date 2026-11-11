@@ -1,0 +1,48 @@
+commit: 8fe5b84
+### configuracao
+shared_buffers = 256MB
+max_parallel_workers_per_gather = 0
+effective_cache_size = 4GB
+### acerto de cache do banco durante a carga
+ blks_hit | blks_read | pct_acerto 
+----------+-----------+------------
+ 20861263 |     23149 |      99.89
+(1 row)
+
+### paginas lidas de fora do shared_buffers, por tabela (heap) e por indice
+         relname         | heap_blks_read | heap_blks_hit | idx_blks_read | idx_blks_hit 
+-------------------------+----------------+---------------+---------------+--------------
+ pedidos                 |          13935 |         92009 |           444 |       470330
+ itens_pedido            |           8258 |         30597 |             0 |     19534113
+ clientes                |            154 |         11091 |           348 |        24915
+ produtos                |              0 |        482637 |             0 |       187152
+ resumo_vendas_produto   |              0 |          4104 |             0 |         2082
+ contagem_pedidos_status |              0 |          2693 |             0 |           15
+(6 rows)
+
+             indexrelname             | idx_blks_read | idx_blks_hit | tamanho 
+--------------------------------------+---------------+--------------+---------
+ pedidos_cliente_id_idx               |           359 |        11026 | 5720 kB
+ clientes_lower_email_idx             |           348 |         7896 | 4792 kB
+ pedidos_dia_inclui_idx               |            53 |        47893 | 24 MB
+ pedidos_pkey                         |            25 |       248216 | 11 MB
+ pedidos_status_criado_em_id_idx      |             7 |       163195 | 21 MB
+ produtos_nome_trgm_idx               |             0 |        35599 | 1144 kB
+ contagem_pedidos_status_status_idx   |             0 |           15 | 16 kB
+ itens_pedido_pedido_id_inclui_idx    |             0 |     19534098 | 45 MB
+ resumo_vendas_produto_produto_id_idx |             0 |         1383 | 440 kB
+ produtos_pkey                        |             0 |       151553 | 456 kB
+ itens_pedido_pkey                    |             0 |           15 | 32 MB
+ clientes_pkey                        |             0 |        17019 | 2208 kB
+ resumo_vendas_produto_receita_idx    |             0 |          699 | 608 kB
+(13 rows)
+
+### memoria do container do banco (cgroup) logo depois da carga
+memory.max: 536870912
+memory.current: 532967424
+memory.peak: 536899584
+anon 40468480
+file 466202624
+shmem 284631040
+inactive_file 89858048
+active_file 91713536
