@@ -1,0 +1,10 @@
+##### A1 indice atual rodada 1                cpu_por_execucao_ms=20.0
+##### A1 indice atual rodada 2                cpu_por_execucao_ms=18.3
+##### A1 indice atual rodada 3                cpu_por_execucao_ms=15.8
+##### B indice que cobre pedidos rodada 1     cpu_por_execucao_ms=12.2
+##### B indice que cobre pedidos rodada 2     cpu_por_execucao_ms=13.5
+##### B indice que cobre pedidos rodada 3     cpu_por_execucao_ms=11.4
+##### A2 indice atual de novo rodada 1        cpu_por_execucao_ms=14.9
+##### A2 indice atual de novo rodada 2        cpu_por_execucao_ms=15.3
+##### A2 indice atual de novo rodada 3        cpu_por_execucao_ms=16.8
+ 725 janelas | > Nested Loop > Index Only Scan using pedidos_dia_inclui_idx on pedidos p > Index Only Scan using itens_pedido_pedido_id_inclui_idx on itens_pedido i
