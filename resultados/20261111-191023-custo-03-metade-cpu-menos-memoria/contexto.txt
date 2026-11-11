@@ -1,0 +1,12 @@
+rotulo: custo-03-metade-cpu-menos-memoria
+data: 2026-11-11 19:10:24 -0300
+vus: 20
+duracao: 60s
+aquecimento: 15s
+semente: 42
+commit: 072634d
+arquivos alterados sem commit: 0
+
+limites dos containers:
+  banco: cpus=500000000 (1e9 = 1 CPU, 0 = sem limite) memoria=402653184 bytes (0 = sem limite)
+  api: cpus=250000000 (1e9 = 1 CPU, 0 = sem limite) memoria=134217728 bytes (0 = sem limite)

@@ -1,0 +1,17 @@
+Medição: custo-03-metade-cpu-menos-memoria
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        8487
+Requisições/s:      140.84
+Tempo de resposta:  mediana 95.9 ms | p95 591.2 ms | p99 1001.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               2140      13.1 ms       110.7 ms      200.4 ms      0.0%    
+cliente-por-email     1238      83.6 ms       189.7 ms      291.3 ms      0.0%    
+pedidos-do-cliente    1782      101.4 ms      386.7 ms      501.4 ms      0.0%    
+pedidos-por-status    1224      100.0 ms      298.8 ms      400.6 ms      0.0%    
+busca-produtos        1274      96.9 ms       299.1 ms      399.9 ms      0.0%    
+vendas-por-dia        680       603.0 ms      1293.2 ms     1598.4 ms     0.0%    
+top-produtos          149       12.1 ms       102.3 ms      200.2 ms      0.0%    
