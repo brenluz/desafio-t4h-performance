@@ -73,6 +73,7 @@ Regras que valem aqui também:
 | 2026-11-11 | Experimento 16 (feito pelo Claude Code a pedido): índice que cobre `pedidos`; vazão ≈ igual (−1,5%): ganho em `vendas-por-dia` anulado por disputa de cache com as outras rotas; decisão pendente | `8fe5b84`, `de26b85`, `eb4698a` |
 | 2026-11-11 | Experimento 16 desfeito (decisão do Breno); hipóteses do estudo de custo escritas antes de medir | `1081ea0`, `ec05985` |
 | 2026-11-11 | Estudo de custo (feito pelo Claude Code a pedido): versão final com limites originais, metade e um quarto da CPU, menos memória, e a original, na mesma sessão. Final: 109× a vazão da original com os mesmos limites; com um quarto da CPU, 29× e 71% a menos de custo por hora | `f631d67`, `92c9ea5`, `c734a97`, `ae80603`, `ae925d2`, `34b9997` |
+| 2026-11-11 | Investigação (pedida pelo Breno) de "metade da CPU" × "metade da CPU e menos memória", intercaladas A-B-B-A-A-B com contadores do cgroup: **sem diferença** (140,25 × 142,15 req/s); a diferença original era deriva/protocolo; menos memória causa ~60% mais releituras de cache, sem custo de vazão nesta carga | `eeae8a0`, `40c1773` |
 
 ## Ambiente
 
@@ -1782,7 +1783,7 @@ Contas (F22): ex. limites originais = 1,5 × 0,04048 + 0,75 × 0,004445 = 0,0640
 | req/s cai quase na proporção da CPU do banco (~150 com metade, ~75 com um quarto) | confirmada, um pouco abaixo: 46% (120,16) e 26% (68,44) dos 260,62 |
 | Latência piora mais que a vazão (degraus de throttling mais longos, F16) | confirmada: p99 0,41 → 1,10 → 2,84 s |
 | O banco continua sendo o limite, não a API | confirmada: o banco usou ~97–98% da sua cota em todas (ex.: 24,5% de 0,25 CPU); a API no máximo ~78% da dela (9,8% de 0,125) |
-| Menos memória não muda a vazão | **não confirmada, no sentido oposto**: custo-03 fez **mais** que custo-01 (140,84 contra 120,16; faixas 136,5–141,1 e 110,6–123,6 sem sobreposição). **Sem explicação**; mediu ~15 min depois, então pode ser deriva do ambiente. Não atribuo à memória sem um teste que isole isso. |
+| Menos memória não muda a vazão | na primeira rodada pareceu que sim, no sentido oposto (custo-03 140,84 contra custo-01 120,16); **a investigação intercalada abaixo mostrou que não**: 142,15 contra 140,25, faixas sobrepostas. **Confirmada.** O custo-01 original foi o ponto fora da curva. |
 | Com 384 MB o banco não é morto por memória | confirmada: `oom_kill 0`; `memory.peak` encostou nos 384 MB e o kernel liberou cache de arquivos; memória que não pode ser liberada ~293 MiB (anon 31 + shmem 262) |
 | A final com um quarto da CPU fica dezenas de vezes acima da original | confirmada: 29× |
 
@@ -1797,7 +1798,45 @@ Pedida pelo Breno: medir de novo só essas duas configurações. Feita pelo Clau
   - **H0 (deriva):** custo-03 mediu ~15 min depois de custo-01; a diferença é do ambiente. Previsão: medidas intercaladas não mostram diferença além da variação.
   - **H1 (efeito real da memória):** algo ligado ao limite de memória muda o padrão de throttling do banco. Previsão: com as medidas intercaladas a diferença persiste, e os contadores do cgroup mostram em quê (duração média das pausas, faltas de página, páginas de cache relidas, leituras de disco).
 - **Desenho:** as duas configurações **intercaladas** na ordem A-B-B-A-A-B (A = custo-01, B = custo-03), 3 medições de cada, para a deriva cair igual nas duas. Usa os **commits já existentes** (`090a390` e `072634d`, com `git switch --detach`), sem commit novo de código ou configuração. Mesmo preparo em todas (`down -v`, 90 s, contrato). Antes e depois de cada `medir.sh`, leitura dos contadores do cgroup do banco (`cpu.stat`, `memory.stat`, `io.stat`), gravados fora do repositório durante as medições (para não contar como arquivo sem commit) e copiados para `diagnostico/21-memoria-metade-cpu/` no fim.
-- **Resultados:** `<preencher>`
+- **Diferença de protocolo (registrar):** no estudo de custo, cada configuração teve **um** preparo e 3 medições seguidas (a 2ª e a 3ª começaram com o banco "aquecido" pela anterior); aqui, **cada** medição teve preparo próprio. As duas configurações receberam o mesmo tratamento entre si, que é o que importa para compará-las.
+
+#### Resultados da investigação (11/11, 19:41–20:04; commit dos resultados `40c1773`)
+
+Todas as 6 medições com `arquivos alterados sem commit: 0`, contrato mantido, e os limites certos no `contexto.txt` (banco com 536870912 bytes nas A e 402653184 nas B).
+
+| Ciclo | Configuração | Pasta | req/s | mediana | p95 | p99 | `cliente` mediana | `vendas-por-dia` mediana |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | A (metade da CPU) | [`194144`](../resultados/20261111-194144-custo-01-metade-cpu-intercalado/resumo.txt) | 140,25 | 95,0 ms | 592,7 ms | 994,0 ms | 10,6 ms | 601,2 ms |
+| 2 | B (+ menos memória) | [`194622`](../resultados/20261111-194622-custo-03-metade-cpu-menos-memoria-intercalado/resumo.txt) | 142,19 | 95,3 ms | 501,2 ms | 802,4 ms | 10,7 ms | 500,9 ms |
+| 3 | B | [`195059`](../resultados/20261111-195059-custo-03-metade-cpu-menos-memoria-intercalado/resumo.txt) | 142,15 | 96,7 ms | 501,4 ms | 999,9 ms | 15,0 ms | 587,8 ms |
+| 4 | A | [`195531`](../resultados/20261111-195531-custo-01-metade-cpu-intercalado/resumo.txt) | 137,54 | 95,5 ms | 600,1 ms | 1.004,3 ms | 11,3 ms | 693,0 ms |
+| 5 | A | [`200003`](../resultados/20261111-200003-custo-01-metade-cpu-intercalado/resumo.txt) | 152,76 | 93,3 ms | 497,1 ms | 733,3 ms | 9,9 ms | 493,5 ms |
+| 6 | B | [`200436`](../resultados/20261111-200436-custo-03-metade-cpu-menos-memoria-intercalado/resumo.txt) | 128,86 | 97,4 ms | 609,7 ms | 1.104,3 ms | 82,6 ms | 702,7 ms |
+
+**Medianas:** A **140,25 req/s** (faixa 137,54–152,76); B **142,15 req/s** (faixa 128,86–142,19). **As faixas se sobrepõem quase inteiras: não há diferença de vazão entre as duas configurações.**
+
+**Contadores do cgroup do banco, delta de cada medição (`diagnostico/21-memoria-metade-cpu/ciclo*-antes/depois.txt`; a janela inclui o aquecimento do `medir.sh`):**
+
+| Ciclo | Config. | Períodos limitados | Páginas relidas do cache (`workingset_refault_file`) | Faltas de página graves (`pgmajfault`) | Leitura (`io.stat` rbytes) | `memory.peak` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | A | 709 de 773 (91,7%) | 52.641 | 117 | 207,2 MiB | 512 MiB |
+| 2 | B | 717 de 778 (92,2%) | 82.807 | 362 | 325,6 MiB | 384 MiB |
+| 3 | B | 716 de 773 (92,6%) | 82.915 | 285 | 325,4 MiB | 384 MiB |
+| 4 | A | 709 de 769 (92,2%) | 48.703 | 64 | 190,7 MiB | 512 MiB |
+| 5 | A | 720 de 777 (92,7%) | 50.459 | 89 | 198,0 MiB | 512 MiB |
+| 6 | B | 717 de 778 (92,2%) | 79.909 | 257 | 313,4 MiB | 384 MiB |
+
+(O `throttled_usec` não entra na tabela: no cgroup v2 ele soma o tempo parado em todas as CPUs da máquina virtual, então não é a duração de uma pausa; dividido pelo número de períodos limitados dá ~1,1 s nos dois lados, igual entre as configurações, mas sem leitura direta.)
+
+**Leitura:**
+
+- **H0 confirmada:** intercaladas, as duas configurações empatam. A diferença do estudo de custo (120,16 contra 140,84) não era do limite de memória. O ponto fora da curva foi o **custo-01 original** (18:52–18:55, faixa 110,60–123,59), mais baixo que as 3 medições A de agora (137,54–152,76) com o mesmo commit. Causa provável: deriva de ambiente naquele momento, ou a diferença de protocolo (medições seguidas depois de um preparo só). Não dá para separar as duas com estes dados.
+- **O throttling é igual nos dois casos** (~92% dos períodos), então H1 (memória mudando o padrão de throttling) não se sustenta.
+- **O comportamento "abaixo do degrau" das rotas baratas não tem a ver com memória:** `cliente` ficou em ~10–15 ms em 5 das 6 medições, com A e B, e em 82,6 ms numa medição B. É um efeito que aparece ou não de uma medição para outra (já visto como "bimodal" em `top-produtos` no experimento 13).
+- **Menos memória não é de graça, mas não custa vazão nesta carga:** com 384 MB, o kernel relê ~60% mais páginas de arquivo (~81 mil contra ~50 mil), tem ~3× mais faltas de página graves e lê ~60% mais (~320 contra ~200 MiB) por medição. Com o banco limitado por CPU e as leituras vindo de armazenamento rápido, esse trabalho a mais não aparece nas req/s. **Limite:** numa máquina com disco mais lento, ou com mais dados, essa pressão de memória pode custar desempenho; não testado.
+- **Efeito no estudo de custo:** a conclusão "a memória pode cair sem perda medida" continua de pé, agora medida de forma justa. O número de "metade da CPU" a usar é a mediana intercalada (**140,25 req/s**; US$ 0,03369/h ÷ (140,25 × 3.600) × 10⁶ ≈ **US$ 0,067 por milhão**), e não os 120,16 do estudo original. Com menos memória: 142,15 req/s, US$ 0,03258/h, **US$ 0,064 por milhão** — mesmo desempenho com 3% a menos de custo por hora.
+
+**Lição de método (para o artigo):** um resultado inesperado medido uma vez só, em horários diferentes, pode ser deriva. Intercalar as configurações (A-B-B-A-A-B) separou a hipótese de "efeito real" da hipótese de "ordem no tempo" com 6 medições a mais.
 
 **Deriva no mesmo dia (para "Limites"):** a versão final com os limites originais fez 260,62 req/s às 18:45, contra 298,89 req/s no experimento 14 às 17:30, com o mesmo código e a mesma configuração (13% a menos, ~1 h depois). Por isso este estudo foi feito numa sessão única: as comparações acima são entre medições de 18:45 a 19:30.
 
