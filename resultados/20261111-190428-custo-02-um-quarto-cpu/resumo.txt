@@ -1,0 +1,17 @@
+Medição: custo-02-um-quarto-cpu
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        4141
+Requisições/s:      68.44
+Tempo de resposta:  mediana 100.2 ms | p95 1298.0 ms | p99 2855.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               1066      93.9 ms       239.6 ms      495.3 ms      0.0%    
+cliente-por-email     607       92.4 ms       298.7 ms      500.6 ms      0.0%    
+pedidos-do-cliente    855       162.2 ms      636.0 ms      925.2 ms      0.0%    
+pedidos-por-status    601       197.3 ms      799.3 ms      1203.3 ms     0.0%    
+busca-produtos        625       140.4 ms      777.1 ms      1000.6 ms     0.0%    
+vendas-por-dia        315       1501.9 ms     3420.0 ms     4736.0 ms     0.0%    
+top-produtos          72        94.7 ms       400.0 ms      544.1 ms      0.0%    
