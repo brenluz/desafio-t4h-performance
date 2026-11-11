@@ -4,7 +4,8 @@ services:
   banco:
     image: postgres:16.4
     # Sem consultas paralelas: com 1 CPU de limite, os workers dividem a mesma cota e só somam custo.
-    command: ["postgres", "-c", "max_parallel_workers_per_gather=0"]
+    # shared_buffers de 256 MB: cabe a tabela pedidos (174 MB) e os índices mais usados no cache do PostgreSQL.
+    command: ["postgres", "-c", "max_parallel_workers_per_gather=0", "-c", "shared_buffers=256MB"]
     shm_size: 256mb
     environment:
       POSTGRES_USER: loja
