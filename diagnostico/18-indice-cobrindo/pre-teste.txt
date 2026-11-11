@@ -1,0 +1,3 @@
+##### CPU: indice atual, 50 execucoes (2024-06-01..07) -> cpu_container_ms=1631 por_execucao_ms=32.6
+##### CPU: indice que cobre, 50 execucoes (2024-06-01..07) -> cpu_container_ms=2986 por_execucao_ms=59.7
+ 725 janelas | > Nested Loop > Bitmap Heap Scan on pedidos p > Bitmap Index Scan on pedidos_criado_em_dia_idx > Index Only Scan using itens_pedido_pedido_id_inclui_idx on itens_pedido i

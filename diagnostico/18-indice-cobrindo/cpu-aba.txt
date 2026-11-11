@@ -1,0 +1,37 @@
+##### A1 indice atual rodada 1                cpu_por_execucao_ms=13.9
+##### A1 indice atual rodada 2                cpu_por_execucao_ms=15.9
+##### A1 indice atual rodada 3                cpu_por_execucao_ms=15.0
+##### B indice que cobre rodada 1             cpu_por_execucao_ms=11.3
+##### B indice que cobre rodada 2             cpu_por_execucao_ms=11.1
+##### B indice que cobre rodada 3             cpu_por_execucao_ms=11.1
+##### A2 indice atual de novo rodada 1        cpu_por_execucao_ms=12.3
+##### A2 indice atual de novo rodada 2        cpu_por_execucao_ms=12.8
+##### A2 indice atual de novo rodada 3        cpu_por_execucao_ms=14.4
+##### plano A1
+   Buffers: shared hit=18300
+         Buffers: shared hit=18300
+               Buffers: shared hit=18300
+                     Buffers: shared hit=1000
+                           Buffers: shared hit=7
+               ->  Index Scan using itens_pedido_pedido_id_idx on itens_pedido i (actual time=0.001..0.001 rows=3 loops=4310)
+                     Buffers: shared hit=17300
+   Buffers: shared hit=16
+ Execution Time: 15.655 ms
+##### plano B
+   Buffers: shared hit=13966
+         Buffers: shared hit=13966
+               Buffers: shared hit=13966
+                     Buffers: shared hit=1000
+                           Buffers: shared hit=7
+               ->  Index Only Scan using itens_pedido_pedido_id_inclui_idx on itens_pedido i (actual time=0.001..0.001 rows=3 loops=4310)
+                     Heap Fetches: 0
+                     Buffers: shared hit=12966
+   Buffers: shared hit=16
+ Execution Time: 12.780 ms
+##### plano A2
+   Buffers: shared hit=18300
+         Buffers: shared hit=18300
+ itens_pedido_pedido_id_idx
+ itens_pedido_pkey
+(2 rows)
+
