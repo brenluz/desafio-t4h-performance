@@ -71,6 +71,7 @@ Regras que valem aqui também:
 | 2026-11-11 | Experimento 15 (feito pelo Claude Code a pedido): `shared_buffers` 192 MB; 257 req/s, 14% abaixo de 256 MB; configuração devolvida para 256 MB | `485ff12`, `5ab3293`, `43ad8d4` |
 | 2026-11-11 | Pré-teste do índice que cobre `pedidos` (variante sem `criado_em` não serve, como diz F20; com `criado_em`: 725/725 janelas só com índices, ~20–33% menos CPU); hipótese do experimento 16 escrita antes da mudança | `230d196`, `5f08b5b` |
 | 2026-11-11 | Experimento 16 (feito pelo Claude Code a pedido): índice que cobre `pedidos`; vazão ≈ igual (−1,5%): ganho em `vendas-por-dia` anulado por disputa de cache com as outras rotas; decisão pendente | `8fe5b84`, `de26b85`, `eb4698a` |
+| 2026-11-11 | Experimento 16 desfeito (decisão do Breno); hipóteses do estudo de custo escritas antes de medir | `1081ea0`, este diário |
 
 ## Ambiente
 
@@ -1625,7 +1626,7 @@ Faixas de req/s: 13: 210,80–229,42; **15: 242,96–259,74**; 14: 286,84–307,
 
 ### 16-indice-cobrindo-pedidos
 
-- **Status:** aplicada e medida — **sem ganho claro de vazão** (o ganho em `vendas-por-dia` foi anulado por perda nas outras rotas); decisão de manter ou desfazer pendente. **Implementado e medido pelo Claude Code a pedido** (ideia de `proximos-testes.md`, testada a pedido do Breno).
+- **Status:** aplicada, medida e **desfeita** (commit `1081ea0`, decisão do Breno) — **sem ganho claro de vazão** (o ganho em `vendas-por-dia` foi anulado por perda nas outras rotas). O banco voltou ao estado do experimento 14. **Implementado e medido pelo Claude Code a pedido** (ideia de `proximos-testes.md`, testada a pedido do Breno).
 - **Problema:** mesmo com tudo em cache (experimento 14), `vendas-por-dia` visita ~1.000 páginas da tabela `pedidos` por chamada (`Bitmap Heap Scan`) só para ler `id` e `status` (1,35 milhão de acertos de cache por minuto em `pedidos`, `cache-256MB.txt`).
 - **Pré-teste (fatos, `diagnostico/20-indice-cobrindo-pedidos/`; banco recriado com 256 MB; índices criados e trocados dentro de transação com `ROLLBACK`, conferido que os índices de `pedidos` voltaram ao original):**
   - **Variante sem `criado_em`** (`((criado_em::date)) INCLUDE (id, status)`): o plano **continua** com `Bitmap Heap Scan on pedidos`, sem `Index Only Scan`. É a limitação descrita em F20: o planejador só considera `Index Only Scan` quando todas as **colunas** usadas estão no índice; a consulta usa `criado_em` só dentro de `criado_em::date`, e ele não percebe.
@@ -1706,7 +1707,32 @@ Por rota (mediana das medianas):
 
 **Por que o ganho do pré-teste não apareceu no sistema (hipótese, apoiada em `cache-depois.txt`):** o pré-teste mediu `vendas-por-dia` sozinha, e nela a economia é real (−93% de visitas à tabela `pedidos`, ~20–33% menos CPU por chamada). Mas o índice novo ocupa +20,5 MB do mesmo `shared_buffers` de 256 MB, que no experimento 14 cabia **exatamente** a tabela `pedidos` e os índices quentes. Com o índice maior, páginas de `pedidos` que as **outras** rotas leem (`pedidos-do-cliente` busca os pedidos do cliente na tabela; a página de `/pedidos` busca as 20 linhas) voltaram a ser expulsas do cache. `pedidos-do-cliente` ficou 13% mais lenta; `vendas-por-dia`, 7% mais rápida; na soma, empate. **Lição para o artigo:** um ganho medido numa consulta isolada não garante ganho no sistema quando a mudança disputa um recurso compartilhado (aqui, o cache).
 
-- **Conclusão:** aplicada e medida, **sem ganho de vazão** (dentro da variação), com cauda um pouco melhor (p95 −4%, p99 −21% com sobreposição) e custo de +20,5 MB de índice e +13% em `pedidos-do-cliente`. Pelo critério de "mais barato", um índice maior que não aumenta a vazão não se paga. **Decisão pendente com o Breno:** desfazer (recomendado: volta ao estado do 14, mais simples e com menos memória) ou manter pela cauda.
+- **Conclusão:** aplicada e medida, **sem ganho de vazão** (dentro da variação), com cauda um pouco melhor (p95 −4%, p99 −21% com sobreposição) e custo de +20,5 MB de índice e +13% em `pedidos-do-cliente`. Pelo critério de "mais barato", um índice maior que não aumenta a vazão não se paga. **Decisão (Breno):** desfazer. Commit `1081ea0` reverte o `.sql`; banco recriado e conferido (índices de `pedidos` iguais aos do experimento 14, `shared_buffers` 256 MB, contrato mantido).
+
+## Estudo de custo: a versão final com menos recursos
+
+> Feito pelo Claude Code a pedido do Breno, como parte do plano "ir além do enunciado". Não é um experimento de otimização: é a outra metade da missão ("mais rápida **e mais barata** de rodar"). O enunciado define o custo como os limites dos containers (API 0,5 CPU / 256 MB; banco 1 CPU / 512 MB) e diz que "é com esses limites que você compara o antes e o depois". Até aqui só mostrei "mais rápida com os mesmos limites"; este estudo mede quanto recurso a versão final realmente precisa.
+
+- **Pergunta:** com quanto menos CPU e memória a versão final (experimento 14) ainda supera, com folga, a aplicação original com os limites originais? E quanto isso custa por milhão de requisições?
+- **Desenho (mesma sessão, mesmo preparo de sempre: `down -v`, 90 s, contrato, 3 medições com `medir.sh` e os parâmetros padrão):**
+
+| Rótulo | Código | Banco (CPU / memória) | API (CPU / memória) |
+| --- | --- | --- | --- |
+| `custo-00-limites-originais` | final | 1 / 512 MB | 0,5 / 256 MB |
+| `custo-01-metade-cpu` | final | **0,5** / 512 MB | **0,25** / 256 MB |
+| `custo-02-um-quarto-cpu` | final | **0,25** / 512 MB | **0,125** / 256 MB |
+| `custo-03-metade-cpu-menos-memoria` | final | 0,5 / **384 MB** | 0,25 / **128 MB** |
+| `custo-base-original` | **original** (`1b5bd26`) | 1 / 512 MB | 0,5 / 256 MB |
+
+  Cada mudança de limite é um commit em `docker-compose.yml` (o `contexto.txt` de cada medição registra os limites). `custo-base-original` remede a aplicação original **hoje**, o que também serve de "antes" na mesma sessão para o artigo. No fim, os limites voltam aos originais (commit), para a comparação principal continuar com os limites do enunciado.
+- **Hipóteses (escritas antes de medir):**
+  - O banco está no teto de CPU (experimento 14: 100%), então as req/s devem cair **quase na proporção** da CPU do banco: ~150 req/s com metade, ~75 com um quarto. Com cota menor, os degraus de throttling ficam mais longos (F16), então a latência deve piorar mais que a vazão.
+  - A API gasta ~1 ms de CPU por requisição (29,5% de 1 CPU a ~300 req/s, experimento 14): com 0,125 CPU ela aguentaria ~125 req/s, acima dos ~75 previstos para o banco com 0,25 CPU. O banco deve continuar sendo o limite.
+  - Memória: a memória fixa do banco é ~318 MiB (experimento 14) e cabe em 384 MB; a API usa ~28 MiB e cabe em 128 MB. Reduzir memória não deve mudar a vazão. Risco: na criação do banco (geração dos dados) o container encosta no limite (Diagnóstico 05); com 384 MB isso deve só reduzir o cache de arquivos.
+  - A versão final com **um quarto** da CPU deve continuar dezenas de vezes acima da original com toda a CPU.
+- **O que derrubaria as hipóteses:** queda de vazão muito maior que a proporção da CPU (efeito não linear do throttling), a API virando o limite antes do banco, ou o banco sendo morto por memória com 384 MB.
+- **Conversão para dinheiro (estimativa, não cotação):** F22 (AWS Fargate, preços por segundo do exemplo da própria página, Linux/x86, US East): **US$ 0,000011244 por vCPU-segundo** e **US$ 0,000001235 por GB-segundo**. Custo por hora de uma configuração = (CPUs × 0,000011244 + GB × 0,000001235) × 3.600; custo por milhão de requisições = custo por hora ÷ (req/s × 3.600) × 1.000.000. **Limites da conversão:** o Fargate só aceita tamanhos fixos (mínimo 0,25 vCPU com 0,5 GB, F22), então os limites deste estudo não são tarefas válidas lá; e os preços foram lidos no exemplo da página porque a tabela de preços não carregou. Serve para comparar configurações entre si, não como orçamento.
+- **Resultados:** `<preencher>`
 
 ## Fontes
 
@@ -1732,6 +1758,7 @@ Por rota (mediana das medianas):
 | F19 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 15 Parallel Query e 15.1 How Parallel Query Works | https://www.postgresql.org/docs/16/parallel-query.html e https://www.postgresql.org/docs/16/how-parallel-query-works.html | 2026-11-09 | doc oficial | paralelismo | "PostgreSQL can devise query plans that can leverage multiple CPUs in order to answer queries faster"; "Many queries cannot benefit from parallel query"; no `Gather` o líder pede "background worker processes" e "must also read all of the tuples generated by the workers" |
 | F20 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.9 Index-Only Scans and Covering Indexes | https://www.postgresql.org/docs/16/indexes-index-only-scans.html | 2026-11-11 | doc oficial | índices | sobre índices de expressão: "PostgreSQL's planner is currently not very smart about such cases. It considers a query to be potentially executable by index-only scan only when all columns needed by the query are available from the index", com a contorno `CREATE INDEX tab_f_x ON tab (f(x)) INCLUDE (x)`; "index-only scans, which can answer queries from an index alone without any heap access"; "The query must reference only columns stored in the index"; a vantagem depende do mapa de visibilidade ("it will be a win only if a significant fraction of the table's heap pages have their all-visible map bits set"); `INCLUDE` cria um "covering index" (`CREATE INDEX tab_x_y ON tab(x) INCLUDE (y)`); cautela: colunas extras "bloat the size of the index, thus potentially slowing searches" |
 | F21 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 20.4.1 (Resource Consumption, Memory): `shared_buffers` | https://www.postgresql.org/docs/16/runtime-config-resource.html | 2026-11-11 | doc oficial | configuração / memória | "Sets the amount of memory the database server uses for shared memory buffers"; "The default is typically 128 megabytes"; "If you have a dedicated database server with 1GB or more of RAM, a reasonable starting value for shared_buffers is 25% of the memory in your system"; "because PostgreSQL also relies on the operating system cache, it is unlikely that an allocation of more than 40% of RAM to shared_buffers will work better than a smaller amount"; "This parameter can only be set at server start" |
+| F22 | Amazon Web Services | AWS Fargate Pricing | https://aws.amazon.com/fargate/pricing/ | 2026-11-11 | caso de mercado (preço público) | custo | Exemplo 1 da página: "Using the Linux/X86 pricing for US East (N. Virginia) Region where CPU cost: $0.000011244 per vCPU second, memory cost: $0.000001235 per GB per second"; "Pricing is calculated per second with a 1-minute minimum"; tamanhos aceitos, ex.: 0,25 vCPU com "0.5 GB, 1 GB, and 2 GB", 0,5 vCPU com "Min. 1 GB and Max. 4 GB". **A tabela de preços da página não carregou (página dinâmica); os valores vêm do exemplo da própria página.** |
 | F4 | PostgreSQL Global Development Group | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html | 2026-11-05 | doc oficial | índices | O índice permite atender o `ORDER BY` "without a separate sorting step"; com `LIMIT n`, "the first n rows can be retrieved directly, without scanning the remainder at all"; "The index can also be scanned backward, producing output satisfying ORDER BY x DESC" |
 
 Meta do enunciado: mínimo 6 fontes, pelo menos 2 acadêmicas ou técnicas primárias.
