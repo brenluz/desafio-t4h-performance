@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="306" viewBox="0 0 860 306" role="img" aria-label="Custo estimado por milhão de requisições (estudo de custo, 11/11)" font-family="Helvetica, Arial, sans-serif">
+<title>Custo estimado por milhão de requisições (estudo de custo, 11/11)</title>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="16.0" y="28.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">Custo estimado por milhão de requisições (estudo de custo, 11/11)</text>
+<text x="16.0" y="50.0" font-size="12" fill="#555" text-anchor="start" font-weight="normal">Preços do AWS Fargate (F22) aplicados aos limites de cada configuração; a haste é a faixa das 3 medições. Escala log.</text>
+<line x1="360.0" y1="64" x2="360.0" y2="266" stroke="#dddddd"/>
+<text x="360.0" y="284.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">US$ 0,01</text>
+<line x1="486.7" y1="64" x2="486.7" y2="266" stroke="#dddddd"/>
+<text x="486.7" y="284.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">US$ 0,10</text>
+<line x1="613.3" y1="64" x2="613.3" y2="266" stroke="#dddddd"/>
+<text x="613.3" y="284.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">US$ 1,00</text>
+<line x1="740.0" y1="64" x2="740.0" y2="266" stroke="#dddddd"/>
+<text x="740.0" y="284.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">US$ 10,00</text>
+<text x="352.0" y="86.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Original, limites originais</text>
+<rect x="360" y="75" width="364.0" height="16" fill="#c0504d"/>
+<line x1="723.1" y1="83" x2="726.6" y2="83" stroke="#222" stroke-width="1.2"/>
+<line x1="723.1" y1="78" x2="723.1" y2="88" stroke="#222" stroke-width="1.2"/>
+<line x1="726.6" y1="78" x2="726.6" y2="88" stroke="#222" stroke-width="1.2"/>
+<text x="732.6" y="87.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 7,48</text>
+<text x="352.0" y="114.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, limites originais</text>
+<rect x="360" y="103" width="105.7" height="16" fill="#2e7d5b"/>
+<line x1="464.0" y1="111" x2="469.3" y2="111" stroke="#222" stroke-width="1.2"/>
+<line x1="464.0" y1="106" x2="464.0" y2="116" stroke="#222" stroke-width="1.2"/>
+<line x1="469.3" y1="106" x2="469.3" y2="116" stroke="#222" stroke-width="1.2"/>
+<text x="475.3" y="115.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,068</text>
+<text x="352.0" y="142.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, metade da CPU (1ª rodada)</text>
+<rect x="360" y="131" width="112.9" height="16" fill="#2e7d5b"/>
+<line x1="471.4" y1="139" x2="477.5" y2="139" stroke="#222" stroke-width="1.2"/>
+<line x1="471.4" y1="134" x2="471.4" y2="144" stroke="#222" stroke-width="1.2"/>
+<line x1="477.5" y1="134" x2="477.5" y2="144" stroke="#222" stroke-width="1.2"/>
+<text x="483.5" y="143.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,078</text>
+<text x="352.0" y="170.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, metade da CPU (intercalado)</text>
+<rect x="360" y="159" width="104.4" height="16" fill="#2e7d5b"/>
+<line x1="459.7" y1="167" x2="465.5" y2="167" stroke="#222" stroke-width="1.2"/>
+<line x1="459.7" y1="162" x2="459.7" y2="172" stroke="#222" stroke-width="1.2"/>
+<line x1="465.5" y1="162" x2="465.5" y2="172" stroke="#222" stroke-width="1.2"/>
+<text x="471.5" y="171.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,067</text>
+<text x="352.0" y="198.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, um quarto da CPU</text>
+<rect x="360" y="187" width="110.9" height="16" fill="#2e7d5b"/>
+<line x1="469.3" y1="195" x2="474.4" y2="195" stroke="#222" stroke-width="1.2"/>
+<line x1="469.3" y1="190" x2="469.3" y2="200" stroke="#222" stroke-width="1.2"/>
+<line x1="474.4" y1="190" x2="474.4" y2="200" stroke="#222" stroke-width="1.2"/>
+<text x="480.4" y="199.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,075</text>
+<text x="352.0" y="226.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, metade da CPU e menos memória (1ª rodada)</text>
+<rect x="360" y="215" width="102.3" height="16" fill="#2e7d5b"/>
+<line x1="462.2" y1="223" x2="464.1" y2="223" stroke="#222" stroke-width="1.2"/>
+<line x1="462.2" y1="218" x2="462.2" y2="228" stroke="#222" stroke-width="1.2"/>
+<line x1="464.1" y1="218" x2="464.1" y2="228" stroke="#222" stroke-width="1.2"/>
+<text x="470.1" y="227.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,064</text>
+<text x="352.0" y="254.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">Final, metade da CPU e menos memória (intercalado)</text>
+<rect x="360" y="243" width="101.8" height="16" fill="#2e7d5b"/>
+<line x1="461.8" y1="251" x2="467.2" y2="251" stroke="#222" stroke-width="1.2"/>
+<line x1="461.8" y1="246" x2="461.8" y2="256" stroke="#222" stroke-width="1.2"/>
+<line x1="467.2" y1="246" x2="467.2" y2="256" stroke="#222" stroke-width="1.2"/>
+<text x="473.2" y="255.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">US$ 0,064</text>
+</svg>
