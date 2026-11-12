@@ -1836,7 +1836,25 @@ Todas as 6 medições com `arquivos alterados sem commit: 0`, contrato mantido, 
 - **Menos memória não é de graça, mas não custa vazão nesta carga:** com 384 MB, o kernel relê ~60% mais páginas de arquivo (~81 mil contra ~50 mil), tem ~3× mais faltas de página graves e lê ~60% mais (~320 contra ~200 MiB) por medição. Com o banco limitado por CPU e as leituras vindo de armazenamento rápido, esse trabalho a mais não aparece nas req/s. **Limite:** numa máquina com disco mais lento, ou com mais dados, essa pressão de memória pode custar desempenho; não testado.
 - **Efeito no estudo de custo:** a conclusão "a memória pode cair sem perda medida" continua de pé, agora medida de forma justa. O número de "metade da CPU" a usar é a mediana intercalada (**140,25 req/s**; US$ 0,03369/h ÷ (140,25 × 3.600) × 10⁶ ≈ **US$ 0,067 por milhão**), e não os 120,16 do estudo original. Com menos memória: 142,15 req/s, US$ 0,03258/h, **US$ 0,064 por milhão** — mesmo desempenho com 3% a menos de custo por hora.
 
-**Lição de método (para o artigo):** um resultado inesperado medido uma vez só, em horários diferentes, pode ser deriva. Intercalar as configurações (A-B-B-A-A-B) separou a hipótese de "efeito real" da hipótese de "ordem no tempo" com 6 medições a mais.
+**Lição de método (para o artigo):** um resultado inesperado medido uma vez só, em horários diferentes, pode ser deriva.
+
+## Rodada final: a cadeia inteira numa sessão só
+
+> Feita pelo Claude Code a pedido do Breno (item 2 do plano "ir além do enunciado"). Script: `diagnostico/22-rodada-final/rodada.sh`.
+
+- **Por quê:** os experimentos foram medidos em três dias (05/11, 09/11, 11/11) e o mesmo código variou até 50% entre dias e ~13% dentro do mesmo dia ("Limites"). Os ganhos de cada experimento contra o anterior continuam válidos (cada par foi medido na mesma sessão), mas a tabela do artigo ("linha de base → final", passo a passo) só fica comparável de ponta a ponta se tudo for medido numa sessão só.
+- **Desenho:** 16 pontos, cada um com o protocolo padrão (commit medido do experimento com `git switch --detach`, `down -v`, 90 s, contrato, 3 medições seguidas com `medir.sh` e parâmetros padrão):
+  - **controle no início:** a versão final (`master`, funcionalmente igual ao experimento 14; a única diferença em `api/`, `banco/` e `docker-compose.yml` é uma linha de comentário);
+  - **00 a 13:** os commits medidos de cada experimento (`1b5bd26`, `09222ee`, `e8bafec`, `9bb2e7a`, `4cb8796`, `047abf3`, `6deaaab`, `15eb4a4`, `3dd7fa4`, `adf386e`, `668745f`, `32bfba2`, `9742069`, `ded6504`);
+  - **14 no fim:** a versão final de novo.
+  - Os experimentos 15 e 16 ficam fora: foram desfeitos.
+  - **Controle de deriva:** a versão final medida no início e no fim mostra quanto o ambiente mudou ao longo das ~2h30 da rodada. Se a diferença for grande, a comparação entre pontos distantes no tempo perde força, e isso vai para "Limites".
+- **Hipóteses (escritas antes de medir):**
+  - Cada passo mantém a **direção** do resultado original (ganho, sem ganho ou piora), salvo os que já estavam dentro da variação.
+  - Os números absolutos diferem dos originais (outro dia), mas a razão final ÷ linha de base fica na mesma ordem de grandeza (~100×, como no estudo de custo).
+  - Efeitos já entendidos devem se repetir: o p95 geral piora no 03 (ciclo fechado) e no 05 o p99 piora; no 13 `pedidos-do-cliente` piora um pouco.
+  - Controle início × fim dentro de ~15%.
+- **Resultados:** `<preencher>` Intercalar as configurações (A-B-B-A-A-B) separou a hipótese de "efeito real" da hipótese de "ordem no tempo" com 6 medições a mais.
 
 **Deriva no mesmo dia (para "Limites"):** a versão final com os limites originais fez 260,62 req/s às 18:45, contra 298,89 req/s no experimento 14 às 17:30, com o mesmo código e a mesma configuração (13% a menos, ~1 h depois). Por isso este estudo foi feito numa sessão única: as comparações acima são entre medições de 18:45 a 19:30.
 
