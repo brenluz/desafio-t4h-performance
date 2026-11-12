@@ -1836,11 +1836,11 @@ Todas as 6 medições com `arquivos alterados sem commit: 0`, contrato mantido, 
 - **Menos memória não é de graça, mas não custa vazão nesta carga:** com 384 MB, o kernel relê ~60% mais páginas de arquivo (~81 mil contra ~50 mil), tem ~3× mais faltas de página graves e lê ~60% mais (~320 contra ~200 MiB) por medição. Com o banco limitado por CPU e as leituras vindo de armazenamento rápido, esse trabalho a mais não aparece nas req/s. **Limite:** numa máquina com disco mais lento, ou com mais dados, essa pressão de memória pode custar desempenho; não testado.
 - **Efeito no estudo de custo:** a conclusão "a memória pode cair sem perda medida" continua de pé, agora medida de forma justa. O número de "metade da CPU" a usar é a mediana intercalada (**140,25 req/s**; US$ 0,03369/h ÷ (140,25 × 3.600) × 10⁶ ≈ **US$ 0,067 por milhão**), e não os 120,16 do estudo original. Com menos memória: 142,15 req/s, US$ 0,03258/h, **US$ 0,064 por milhão** — mesmo desempenho com 3% a menos de custo por hora.
 
-**Lição de método (para o artigo):** um resultado inesperado medido uma vez só, em horários diferentes, pode ser deriva.
+**Lição de método (para o artigo):** um resultado inesperado medido uma vez só, em horários diferentes, pode ser deriva. Intercalar as configurações (A-B-B-A-A-B) separou a hipótese de "efeito real" da hipótese de "ordem no tempo" com 6 medições a mais.
 
 ## Rodada final: a cadeia inteira numa sessão só
 
-> Feita pelo Claude Code a pedido do Breno (item 2 do plano "ir além do enunciado"). Script: `diagnostico/22-rodada-final/rodada.sh`.
+> Planejada e escrita pelo Claude Code a pedido do Breno (item 2 do plano "ir além do enunciado"); **rodada pelo Breno** em 12/11. Script: `diagnostico/22-rodada-final/rodada.sh`. Duas tentativas anteriores no mesmo dia foram interrompidas (notebook suspenso; WebStorm abrindo no meio da 1ª medição do controle) e as pastas delas ficaram fora do repositório.
 
 - **Por quê:** os experimentos foram medidos em três dias (05/11, 09/11, 11/11) e o mesmo código variou até 50% entre dias e ~13% dentro do mesmo dia ("Limites"). Os ganhos de cada experimento contra o anterior continuam válidos (cada par foi medido na mesma sessão), mas a tabela do artigo ("linha de base → final", passo a passo) só fica comparável de ponta a ponta se tudo for medido numa sessão só.
 - **Desenho:** 16 pontos, cada um com o protocolo padrão (commit medido do experimento com `git switch --detach`, `down -v`, 90 s, contrato, 3 medições seguidas com `medir.sh` e parâmetros padrão):
@@ -1854,7 +1854,61 @@ Todas as 6 medições com `arquivos alterados sem commit: 0`, contrato mantido, 
   - Os números absolutos diferem dos originais (outro dia), mas a razão final ÷ linha de base fica na mesma ordem de grandeza (~100×, como no estudo de custo).
   - Efeitos já entendidos devem se repetir: o p95 geral piora no 03 (ciclo fechado) e no 05 o p99 piora; no 13 `pedidos-do-cliente` piora um pouco.
   - Controle início × fim dentro de ~15%.
-- **Resultados:** `<preencher>` Intercalar as configurações (A-B-B-A-A-B) separou a hipótese de "efeito real" da hipótese de "ordem no tempo" com 6 medições a mais.
+
+#### Resultados da rodada final (12/11, 14:50–17:14; pastas `resultados/20261112-*-rodada-final-*`)
+
+Todas as 48 medições com `arquivos alterados sem commit: 0`, o commit certo no `contexto.txt`, contrato mantido (42 respostas iguais) e os limites originais (banco 1 CPU / 512 MB, API 0,5 CPU / 256 MB). No fim o repositório voltou para `master`, limpo.
+
+| Ponto | Commit | req/s (mediana) | faixa | mediana | p95 | p99 | Ganho sobre o anterior | Ganho no experimento original |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| controle (início) | `2fd9499` | 344,38 | 336,61–344,65 | 18,5 ms | 192,6 ms | 306,1 ms | — | — |
+| 00 linha de base | `1b5bd26` | 2,61 | 2,55–2,65 | 1.299,0 ms | 25.375,2 ms | 29.794,0 ms | — | — |
+| 01 índices FK | `09222ee` | 4,51 | 4,45–5,12 | 1.094,1 ms | 12.537,2 ms | 23.200,2 ms | +73% | +78% |
+| 02 índice status | `e8bafec` | 6,09 | 6,06–6,12 | 1.099,3 ms | 11.720,8 ms | 17.948,2 ms | +35% | +42% |
+| 03 N+1 | `9bb2e7a` | 8,80 | 8,58–9,02 | 794,7 ms | 11.954,9 ms | 19.198,6 ms | +44% | +45% |
+| 04 pool | `4cb8796` | 9,79 | 9,60–10,24 | 299,2 ms | 12.170,4 ms | 20.194,3 ms | +11% | +11,7% |
+| 05 índice por dia | `047abf3` | 13,09 | 11,35–13,40 | 295,9 ms | 7.047,7 ms | 28.701,5 ms | +34% | +18,7% |
+| 06 late row lookup | `6deaaab` | 16,22 | 15,76–16,91 | 299,8 ms | 5.967,5 ms | 19.980,3 ms | +24% | +28% |
+| 07 visão top-produtos | `15eb4a4` | 43,59 | 43,54–44,68 | 360,8 ms | 1.206,9 ms | 1.612,8 ms | 2,7× | 2,7× |
+| 08 índice e-mail | `3dd7fa4` | 54,83 | 52,90–55,44 | 292,0 ms | 978,3 ms | 1.301,0 ms | +26% | +15,5% |
+| 09 vendas no SQL | `adf386e` | 74,25 | 72,53–74,48 | 103,7 ms | 902,1 ms | 1.697,4 ms | +35% | +62% |
+| 10 trigramas | `668745f` | 92,86 | 92,67–94,27 | 100,3 ms | 804,7 ms | 1.495,1 ms | +25% | +24% |
+| 11 contagem | `32bfba2` | 144,39 | 143,03–145,35 | 97,5 ms | 600,2 ms | 902,2 ms | +55% | +53% |
+| 12 sem paralelismo | `9742069` | 202,37 | 197,76–204,56 | 88,0 ms | 402,7 ms | 691,7 ms | +40% | +64% |
+| 13 índice cobrindo | `ded6504` | 282,96 | 282,39–287,90 | 76,1 ms | 212,3 ms | 405,0 ms | +40% | +12,8% |
+| 14 shared_buffers (fim) | `2fd9499` | 351,81 | 349,09–359,70 | 18,5 ms | 189,1 ms | 298,2 ms | +24% | +36% |
+
+(mediana, p95 e p99: mediana das 3 medições de cada valor. "Ganho no experimento original": o número da conclusão de cada experimento.)
+
+**Verificação das hipóteses:**
+
+- **Direção: confirmada.** Os 14 passos têm ganho, como nos originais, e **nenhuma faixa se sobrepõe à do passo anterior**. O tamanho bate de perto (até 7 pontos percentuais) em 8 dos 14 passos (01, 02, 03, 04, 06, 07, 10, 11). Diferem: 05 (+34% contra +18,7%), 08 (+26% contra +15,5%), 09 (+35% contra +62%), 12 (+40% contra +64%), 14 (+24% contra +36%) e, o maior desvio, **13 (+40% contra +12,8%)**. Do 12 ao 14, somados, a rodada final dá 1,74× e os originais 1,53× (medidos em dias diferentes). **A diferença no 13 não foi investigada.** Candidato: o plano de `vendas-por-dia` depende da amostra do `ANALYZE` (P14) e cada `down -v` sorteia uma amostra nova; a rota caiu de 483,5 para 292,6 ms de mediana do 12 para o 13 nesta rodada.
+- **Ordem de grandeza: confirmada.** Final ÷ linha de base = 351,81 ÷ 2,61 = **134,8×** (controle do início: 131,9×), contra 109× no estudo de custo. A linha de base fez 2,61 req/s hoje e 1,53 em 05/11 com o mesmo código (+71%): mais um exemplo de que o número absoluto depende do dia, e a razão é o que se compara.
+- **Efeitos já entendidos:**
+  - **p95 piora no 03: não se repetiu além da variação.** 11.720,8 → 11.954,9 ms (+2%), com as faixas se sobrepondo (11.601,6–12.006,7 contra 10.589,7–12.739,6). O resto do 03 se repetiu: mediana −28% e p95 de `pedidos-do-cliente` −90% (12.404,0 → 1.200,5 ms; original −91%).
+  - **p99 piora no 05: confirmado.** 20.194,3 → 28.701,5 ms (+42%).
+  - **`pedidos-do-cliente` piora um pouco no 13: não se repetiu.** Mediana 89,5 → 84,4 ms e p95 106,6 → 103,8 ms (melhorou um pouco).
+- **Controle início × fim: dentro do limite.** 344,38 → 351,81 req/s (+2,2%, bem abaixo dos 15%), mas as faixas não se sobrepõem (as 3 do fim ficaram acima das 3 do início): deriva pequena para cima ao longo de ~2h30.
+
+**Efeitos estruturais que se repetiram (fato, das pastas):**
+
+- 04: mediana geral 794,7 → 299,2 ms (−62%; original −62%).
+- 06: p95 de `pedidos-por-status` 25.357,6 → 1.396,9 ms (−94%; original −95%).
+- 08: o gargalo muda de lugar de novo. Banco a 61–75% de CPU e API a ~48% (cota de 50%), como no original (63% e 96% da cota) e nas medições de 09/11 (API 47,7–49,1%).
+- 09: mediana geral 292,0 → 103,7 ms (−64%; original −67%).
+- 12: as rotas baratas saem do degrau de ~100 ms (`cliente` ~92 → 11,4 ms, `cliente-por-email` ~94 → 13,6 ms, `top-produtos` ~93 → 11,1 ms de mediana).
+- Linha de base: 1 chamada de `top-produtos` em 3 falhou na 1ª medição (0,54% de erros no geral; p99 da rota 59,1 s). A linha de base original também teve uma medição com erros (0,87%). O contrato foi mantido nas três.
+
+**Incidentes durante a rodada (registrar):**
+
+- **O notebook entrou em suspensão duas vezes** (Log de Eventos do Windows, `Kernel-Power` 42/107 e `Power-Troubleshooter` 1):
+  - **15:03:56 → 15:15:35**, um segundo depois de criada a pasta da 1ª medição do ponto 01. A carga dessa medição rodou toda depois do retorno: as amostras do `recursos.csv` vão de 15:15:54 a 15:16:57 e a duração do k6 (`count ÷ rate`) foi 63,1 s, igual à da 2ª medição (63,9 s). Mesmo assim, ela é a mais alta das três (5,12 contra 4,51 e 4,45; o banco ficou ~12 min a mais parado antes). A mediana não muda: sem ela seria 4,48.
+  - **15:49:05 → 16:16:53**, depois do fim da última medição do ponto 05 (amostras até 15:48:18) e durante o preparo do ponto 06 (`down -v`/`up`/90 s). As 3 medições do 06 começaram depois do retorno; o banco só ficou mais tempo parado antes delas.
+- A 3ª medição do 05 ficou abaixo das outras duas (11,35 contra 13,09 e 13,40) e o k6 levou 70,1 s nela. É compatível com a cauda de ~30 s do 05: o k6 espera as últimas requisições. A mediana não muda.
+- Às 15:31 o app Configurações do Windows foi aberto (mudança no plano de energia), durante a 2ª medição do 03. As três medições do 03 ficaram juntas (8,58–9,02).
+- **Decisão:** manter as 48 medições. Nenhuma janela de carga cruzou uma suspensão, e todas as conclusões usam a mediana.
+
+**Para o artigo:** esta tabela substitui a sequência de números de dias diferentes. Os ganhos de cada passo vêm da mesma sessão, e a razão final (~135×) vem de pontos medidos com ~2h20 de distância e controle de deriva de +2,2%.
 
 **Deriva no mesmo dia (para "Limites"):** a versão final com os limites originais fez 260,62 req/s às 18:45, contra 298,89 req/s no experimento 14 às 17:30, com o mesmo código e a mesma configuração (13% a menos, ~1 h depois). Por isso este estudo foi feito numa sessão única: as comparações acima são entre medições de 18:45 a 19:30.
 
@@ -1981,3 +2035,4 @@ Viram fichas no `proximos-testes.md`: fonte, ganho esperado, como testaria, o qu
 | 2026-11-09 | Claude Code | A pedido, escreveu o rascunho de `proximos-testes.md` (7 fichas, só com números de pré-testes/diagnósticos) e fez o Diagnóstico 06 (compose que preserva o experimento 12, estatísticas zeradas antes da carga, planos das 725 janelas, custo do plano alternativo) | Revisar as fichas; saídas brutas em `diagnostico/17-diagnostico-06/` |
 | 2026-11-10/11 | Claude Code | **A pedido, conduziu o experimento 13** (índice que cobre): remedição do 12, recontagem de planos, pré-teste de equivalência e de CPU (refeito em A-B-A quando o primeiro resultado se mostrou inconsistente), hipótese; abriu F20 | Saídas brutas em `diagnostico/18-indice-cobrindo/` |
 | 2026-11-11 | Claude Code | **A pedido, conduziu os experimentos 14, 15 e 16 e o estudo de custo**: diagnóstico de cache por tabela, hipóteses, mudanças de configuração e de limites, medições, contas de custo; abriu F21 e F22 (F22 conferida pelo Breno na tabela de preços) | Saídas brutas em `diagnostico/19-shared-buffers/`, `diagnostico/20-indice-cobrindo-pedidos/` e nas pastas `resultados/*-custo-*`; contas reproduzíveis com a fórmula registrada |
+| 2026-11-12 | Claude Code | Escreveu o script da rodada final (rodada pelo Breno); conferiu as 48 pastas, cruzou os horários com o Log de Eventos do Windows (suspensões), calculou medianas, faixas e ganhos por passo e escreveu a verificação das hipóteses | Números conferíveis em `resultados/20261112-*-rodada-final-*`; horários das suspensões no Visualizador de Eventos (Sistema, `Kernel-Power`) |
