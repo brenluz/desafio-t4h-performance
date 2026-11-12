@@ -1,0 +1,17 @@
+Medição: rodada-final-00-linha-de-base
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        185
+Requisições/s:      2.55
+Tempo de resposta:  mediana 1299.0 ms | p95 25375.2 ms | p99 33923.8 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               50        446.6 ms      899.2 ms      942.0 ms      0.0%    
+cliente-por-email     34        1299.2 ms     1907.7 ms     2036.6 ms     0.0%    
+pedidos-do-cliente    38        22096.5 ms    29588.1 ms    31176.7 ms    0.0%    
+pedidos-por-status    22        9249.1 ms     24969.0 ms    42307.1 ms    0.0%    
+busca-produtos        27        798.3 ms      1238.3 ms     1300.9 ms     0.0%    
+vendas-por-dia        12        8565.2 ms     11189.8 ms    11365.1 ms    0.0%    
+top-produtos          2         34656.5 ms    48277.3 ms    49488.1 ms    0.0%    

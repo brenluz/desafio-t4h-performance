@@ -1,0 +1,17 @@
+Medição: rodada-final-04-pool-conexoes
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        649
+Requisições/s:      9.60
+Tempo de resposta:  mediana 299.2 ms | p95 12170.4 ms | p99 28110.3 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               170       93.6 ms       207.9 ms      418.6 ms      0.0%    
+cliente-por-email     99        796.7 ms      1329.4 ms     1607.2 ms     0.0%    
+pedidos-do-cliente    134       199.4 ms      488.1 ms      574.4 ms      0.0%    
+pedidos-por-status    86        1196.2 ms     17527.5 ms    20519.8 ms    0.0%    
+busca-produtos        102       300.7 ms      500.5 ms      600.3 ms      0.0%    
+vendas-por-dia        47        10317.5 ms    13354.9 ms    13988.7 ms    0.0%    
+top-produtos          11        28901.5 ms    33845.4 ms    33973.7 ms    0.0%    

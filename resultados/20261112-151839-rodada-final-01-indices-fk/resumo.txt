@@ -1,0 +1,17 @@
+Medição: rodada-final-01-indices-fk
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        290
+Requisições/s:      4.45
+Tempo de resposta:  mediana 1173.2 ms | p95 12746.4 ms | p99 19260.6 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               67        492.2 ms      673.1 ms      833.3 ms      0.0%    
+cliente-por-email     47        1097.0 ms     1595.1 ms     1796.7 ms     0.0%    
+pedidos-do-cliente    60        8548.0 ms     13171.8 ms    14033.4 ms    0.0%    
+pedidos-por-status    40        8981.1 ms     15183.8 ms    22958.9 ms    0.0%    
+busca-produtos        52        675.4 ms      1095.8 ms     1149.5 ms     0.0%    
+vendas-por-dia        21        6815.3 ms     16967.8 ms    18047.3 ms    0.0%    
+top-produtos          3         30389.8 ms    41846.1 ms    42864.5 ms    0.0%    

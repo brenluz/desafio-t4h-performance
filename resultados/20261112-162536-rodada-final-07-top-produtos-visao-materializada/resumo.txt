@@ -1,0 +1,17 @@
+Medição: rodada-final-07-top-produtos-visao-materializada
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        2626
+Requisições/s:      43.59
+Tempo de resposta:  mediana 360.8 ms | p95 1206.9 ms | p99 1716.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               669       104.2 ms      485.9 ms      685.0 ms      0.0%    
+cliente-por-email     378       879.3 ms      1427.0 ms     1834.4 ms     0.0%    
+pedidos-do-cliente    556       243.0 ms      693.1 ms      1058.8 ms     0.0%    
+pedidos-por-status    371       519.0 ms      1206.7 ms     1714.7 ms     0.0%    
+busca-produtos        405       393.7 ms      792.4 ms      999.3 ms      0.0%    
+vendas-por-dia        203       824.2 ms      1956.6 ms     3419.1 ms     0.0%    
+top-produtos          44        102.0 ms      802.4 ms      1075.1 ms     0.0%    

@@ -1,0 +1,17 @@
+Medição: rodada-final-06-pedidos-late-lookup
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        1044
+Requisições/s:      15.76
+Tempo de resposta:  mediana 299.6 ms | p95 5967.5 ms | p99 21222.5 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               272       95.3 ms       188.2 ms      285.4 ms      0.0%    
+cliente-por-email     153       799.6 ms      1161.3 ms     1320.7 ms     0.0%    
+pedidos-do-cliente    225       205.1 ms      402.5 ms      512.6 ms      0.0%    
+pedidos-por-status    153       696.2 ms      1407.2 ms     1703.4 ms     0.0%    
+busca-produtos        156       301.1 ms      592.5 ms      703.2 ms      0.0%    
+vendas-por-dia        69        6809.6 ms     15759.4 ms    18625.5 ms    0.0%    
+top-produtos          16        24455.5 ms    29713.7 ms    31461.7 ms    0.0%    

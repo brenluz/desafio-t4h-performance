@@ -1,0 +1,17 @@
+Medição: rodada-final-14-shared-buffers-256mb
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        21007
+Requisições/s:      349.09
+Tempo de resposta:  mediana 20.6 ms | p95 189.1 ms | p99 298.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               5336      11.4 ms       92.5 ms       99.1 ms       0.0%    
+cliente-por-email     3142      11.8 ms       93.9 ms       99.7 ms       0.0%    
+pedidos-do-cliente    4254      27.4 ms       100.3 ms      108.1 ms      0.0%    
+pedidos-por-status    3068      76.7 ms       103.4 ms      189.3 ms      0.0%    
+busca-produtos        3114      22.2 ms       101.0 ms      106.6 ms      0.0%    
+vendas-por-dia        1701      195.7 ms      309.1 ms      401.7 ms      0.0%    
+top-produtos          392       12.2 ms       95.0 ms       101.3 ms      0.0%    

@@ -1,0 +1,17 @@
+Medição: rodada-final-02-indice-pedidos-status
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        378
+Requisições/s:      6.12
+Tempo de resposta:  mediana 1099.2 ms | p95 12006.7 ms | p99 17948.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               101       395.6 ms      693.8 ms      737.8 ms      0.0%    
+cliente-por-email     55        1104.6 ms     1563.1 ms     1705.8 ms     0.0%    
+pedidos-do-cliente    74        8151.1 ms     12479.3 ms    13262.3 ms    0.0%    
+pedidos-por-status    50        1919.3 ms     9271.2 ms     12641.9 ms    0.0%    
+busca-produtos        63        693.0 ms      1004.1 ms     1175.2 ms     0.0%    
+vendas-por-dia        30        3832.0 ms     17809.3 ms    18235.8 ms    0.0%    
+top-produtos          5         21407.3 ms    24579.1 ms    25154.7 ms    0.0%    

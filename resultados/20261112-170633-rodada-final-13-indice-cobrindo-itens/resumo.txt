@@ -1,0 +1,17 @@
+Medição: rodada-final-13-indice-cobrindo-itens
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        17316
+Requisições/s:      287.90
+Tempo de resposta:  mediana 76.0 ms | p95 209.8 ms | p99 402.2 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               4409      11.3 ms       95.4 ms       100.6 ms      0.0%    
+cliente-por-email     2569      11.1 ms       94.7 ms       100.4 ms      0.0%    
+pedidos-do-cliente    3526      84.0 ms       103.5 ms      193.5 ms      0.0%    
+pedidos-por-status    2518      86.2 ms       106.8 ms      199.0 ms      0.0%    
+busca-produtos        2584      79.0 ms       103.5 ms      180.2 ms      0.0%    
+vendas-por-dia        1388      290.0 ms      497.2 ms      605.2 ms      0.0%    
+top-produtos          322       11.1 ms       96.1 ms       102.3 ms      0.0%    

@@ -1,0 +1,17 @@
+Medição: rodada-final-05-indice-vendas-por-dia
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        796
+Requisições/s:      11.35
+Tempo de resposta:  mediana 299.3 ms | p95 8656.1 ms | p99 28701.5 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               205       93.7 ms       213.1 ms      340.5 ms      0.0%    
+cliente-por-email     125       718.5 ms      1016.6 ms     1139.0 ms     0.0%    
+pedidos-do-cliente    160       196.0 ms      484.6 ms      575.5 ms      0.0%    
+pedidos-por-status    123       903.7 ms      23924.2 ms    30598.2 ms    0.0%    
+busca-produtos        117       300.2 ms      491.3 ms      1042.5 ms     0.0%    
+vendas-por-dia        53        4908.6 ms     10287.9 ms    11368.3 ms    0.0%    
+top-produtos          13        28058.5 ms    31899.4 ms    31904.9 ms    0.0%    

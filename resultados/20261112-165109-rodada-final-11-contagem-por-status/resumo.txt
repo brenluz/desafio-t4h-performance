@@ -1,0 +1,17 @@
+Medição: rodada-final-11-contagem-por-status
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        8708
+Requisições/s:      144.39
+Tempo de resposta:  mediana 97.7 ms | p95 600.2 ms | p99 899.9 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               2188      91.3 ms       102.6 ms      193.8 ms      0.0%    
+cliente-por-email     1269      94.1 ms       108.0 ms      201.7 ms      0.0%    
+pedidos-do-cliente    1818      99.8 ms       202.3 ms      298.1 ms      0.0%    
+pedidos-por-status    1259      103.0 ms      206.0 ms      303.5 ms      0.0%    
+busca-produtos        1310      98.3 ms       197.1 ms      206.1 ms      0.0%    
+vendas-por-dia        710       607.8 ms      1100.7 ms     1481.4 ms     0.0%    
+top-produtos          154       93.3 ms       106.9 ms      199.6 ms      0.0%    

@@ -1,0 +1,17 @@
+Medição: rodada-final-08-indice-email
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        3329
+Requisições/s:      54.83
+Tempo de resposta:  mediana 292.0 ms | p95 978.3 ms | p99 1301.0 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               866       172.0 ms      588.0 ms      797.3 ms      0.0%    
+cliente-por-email     483       192.6 ms      598.8 ms      772.7 ms      0.0%    
+pedidos-do-cliente    681       293.1 ms      794.7 ms      1102.5 ms     0.0%    
+pedidos-por-status    478       512.4 ms      1175.2 ms     1404.3 ms     0.0%    
+busca-produtos        497       368.8 ms      888.9 ms      1082.9 ms     0.0%    
+vendas-por-dia        266       800.5 ms      1404.5 ms     2073.8 ms     0.0%    
+top-produtos          58        112.7 ms      622.1 ms      702.4 ms      0.0%    

@@ -1,0 +1,17 @@
+Medição: rodada-final-10-busca-trigramas
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        5693
+Requisições/s:      94.27
+Tempo de resposta:  mediana 100.1 ms | p95 804.7 ms | p99 1495.1 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               1458      94.8 ms       105.3 ms      200.4 ms      0.0%    
+cliente-por-email     850       96.0 ms       197.4 ms      299.3 ms      0.0%    
+pedidos-do-cliente    1196      101.8 ms      292.7 ms      301.4 ms      0.0%    
+pedidos-por-status    810       306.7 ms      954.4 ms      1207.4 ms     0.0%    
+busca-produtos        835       100.0 ms      199.6 ms      293.2 ms      0.0%    
+vendas-por-dia        442       798.7 ms      2084.9 ms     3699.2 ms     0.0%    
+top-produtos          102       97.6 ms       303.2 ms      895.9 ms      0.0%    
