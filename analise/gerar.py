@@ -65,7 +65,7 @@ EXPERIMENTOS = [
          fontes="F4, F3", status=APLICADA, antes="01", antes_texto="exp. 01", rota="pedidos-por-status",
          conclusao="Ganho. O índice casa com o `ORDER BY` e tira a ordenação; o `count(*)` do total continua caro (resolvido no 11)."),
     dict(id="03", rotulo="03-n-mais-1", mudanca="N+1 de `/clientes/:id/pedidos` trocado por uma consulta com `JOIN`",
-         fontes="F5, F6", status=APLICADA, antes="02", antes_texto="exp. 02", rota="pedidos-do-cliente",
+         fontes="F5, F6, F25", status=APLICADA, antes="02", antes_texto="exp. 02", rota="pedidos-do-cliente",
          conclusao="Ganho na rota e na vazão. O p95 geral piorou: com a carga em ciclo fechado, a fila foi para os relatórios."),
     dict(id="04", rotulo="04-pool-conexoes", mudanca="`pg.Pool` (`max: 20`) no lugar de uma conexão nova por consulta",
          fontes="F7, F8, F9", status=APLICADA, antes="03-remedido", antes_texto="exp. 03 remedido (09/11)", rota=None,
