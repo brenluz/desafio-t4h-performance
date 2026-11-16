@@ -3,7 +3,7 @@
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="16.0" y="28.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">Onde está o gargalo: CPU usada em % da cota (rodada final, 12/11)</text>
 <text x="16.0" y="50.0" font-size="12" fill="#555" text-anchor="start" font-weight="normal">Mediana de 3 medições do cpu_media. No 08 o banco sai do teto e a API chega ao dela; no 09 o gargalo volta ao banco.</text>
-<rect x="240" y="62" width="12" height="12" fill="#6b8fbf"/>
+<rect x="240" y="62" width="12" height="12" fill="#2b6cb0"/>
 <text x="258.0" y="73.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">banco (cota de 1 CPU)</text>
 <rect x="440" y="62" width="12" height="12" fill="#e0a030"/>
 <text x="458.0" y="73.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">API (cota de 0,5 CPU)</text>
@@ -18,77 +18,77 @@
 <line x1="740.0" y1="86" x2="740.0" y2="542" stroke="#999999"/>
 <text x="740.0" y="560.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">100%</text>
 <text x="232.0" y="109.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">00 linha de base</text>
-<rect x="240" y="96" width="499.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="96" width="499.0" height="10" fill="#2b6cb0"/>
 <text x="743.0" y="105.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">100%</text>
 <rect x="240" y="107" width="71.0" height="10" fill="#e0a030"/>
 <text x="315.0" y="116.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">14%</text>
 <text x="232.0" y="139.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">01 índices nas FKs</text>
-<rect x="240" y="126" width="496.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="126" width="496.5" height="10" fill="#2b6cb0"/>
 <text x="740.5" y="135.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="137" width="117.0" height="10" fill="#e0a030"/>
 <text x="361.0" y="146.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">23%</text>
 <text x="232.0" y="169.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">02 índice de status</text>
-<rect x="240" y="156" width="493.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="156" width="493.0" height="10" fill="#2b6cb0"/>
 <text x="737.0" y="165.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="167" width="144.0" height="10" fill="#e0a030"/>
 <text x="388.0" y="176.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">29%</text>
 <text x="232.0" y="199.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">03 N+1</text>
-<rect x="240" y="186" width="496.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="186" width="496.0" height="10" fill="#2b6cb0"/>
 <text x="740.0" y="195.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="197" width="149.0" height="10" fill="#e0a030"/>
 <text x="393.0" y="206.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">30%</text>
 <text x="232.0" y="229.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">04 pool de conexões</text>
-<rect x="240" y="216" width="491.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="216" width="491.5" height="10" fill="#2b6cb0"/>
 <text x="735.5" y="225.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">98%</text>
 <rect x="240" y="227" width="161.0" height="10" fill="#e0a030"/>
 <text x="405.0" y="236.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">32%</text>
 <text x="232.0" y="259.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">05 índice por dia</text>
-<rect x="240" y="246" width="486.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="246" width="486.0" height="10" fill="#2b6cb0"/>
 <text x="730.0" y="255.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">97%</text>
 <rect x="240" y="257" width="165.0" height="10" fill="#e0a030"/>
 <text x="409.0" y="266.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">33%</text>
 <text x="232.0" y="289.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">06 late row lookup</text>
-<rect x="240" y="276" width="493.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="276" width="493.0" height="10" fill="#2b6cb0"/>
 <text x="737.0" y="285.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="287" width="190.0" height="10" fill="#e0a030"/>
 <text x="434.0" y="296.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">38%</text>
 <text x="232.0" y="319.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">07 visão top-produtos</text>
-<rect x="240" y="306" width="451.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="306" width="451.5" height="10" fill="#2b6cb0"/>
 <text x="695.5" y="315.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">90%</text>
 <rect x="240" y="317" width="401.0" height="10" fill="#e0a030"/>
 <text x="645.0" y="326.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">80%</text>
 <text x="232.0" y="349.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">08 índice de e-mail</text>
-<rect x="240" y="336" width="340.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="336" width="340.0" height="10" fill="#2b6cb0"/>
 <text x="584.0" y="345.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">68%</text>
 <rect x="240" y="347" width="480.0" height="10" fill="#e0a030"/>
 <text x="724.0" y="356.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">96%</text>
 <text x="232.0" y="379.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">09 vendas no SQL</text>
-<rect x="240" y="366" width="494.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="366" width="494.0" height="10" fill="#2b6cb0"/>
 <text x="738.0" y="375.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="377" width="92.0" height="10" fill="#e0a030"/>
 <text x="336.0" y="386.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">18%</text>
 <text x="232.0" y="409.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">10 trigramas</text>
-<rect x="240" y="396" width="496.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="396" width="496.5" height="10" fill="#2b6cb0"/>
 <text x="740.5" y="405.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="407" width="113.0" height="10" fill="#e0a030"/>
 <text x="357.0" y="416.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">23%</text>
 <text x="232.0" y="439.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">11 contagem por status</text>
-<rect x="240" y="426" width="493.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="426" width="493.5" height="10" fill="#2b6cb0"/>
 <text x="737.5" y="435.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="437" width="150.0" height="10" fill="#e0a030"/>
 <text x="394.0" y="446.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">30%</text>
 <text x="232.0" y="469.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">12 sem paralelismo</text>
-<rect x="240" y="456" width="496.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="456" width="496.0" height="10" fill="#2b6cb0"/>
 <text x="740.0" y="465.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">99%</text>
 <rect x="240" y="467" width="191.0" height="10" fill="#e0a030"/>
 <text x="435.0" y="476.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">38%</text>
 <text x="232.0" y="499.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">13 índice cobrindo itens</text>
-<rect x="240" y="486" width="502.0" height="10" fill="#6b8fbf"/>
+<rect x="240" y="486" width="502.0" height="10" fill="#2b6cb0"/>
 <text x="746.0" y="495.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">100%</text>
 <rect x="240" y="497" width="260.0" height="10" fill="#e0a030"/>
 <text x="504.0" y="506.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">52%</text>
 <text x="232.0" y="529.0" font-size="13" fill="#222" text-anchor="end" font-weight="normal">14 shared_buffers (final)</text>
-<rect x="240" y="516" width="499.5" height="10" fill="#6b8fbf"/>
+<rect x="240" y="516" width="499.5" height="10" fill="#2b6cb0"/>
 <text x="743.5" y="525.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">100%</text>
 <rect x="240" y="527" width="292.0" height="10" fill="#e0a030"/>
 <text x="536.0" y="536.0" font-size="10" fill="#444" text-anchor="start" font-weight="normal">58%</text>

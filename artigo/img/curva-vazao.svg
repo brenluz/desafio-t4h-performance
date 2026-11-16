@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="460" viewBox="0 0 860 460" role="img" aria-label="Requisições por segundo conforme o número de usuários (curva de capacidade, 16/11)" font-family="Helvetica, Arial, sans-serif">
+<title>Requisições por segundo conforme o número de usuários (curva de capacidade, 16/11)</title>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="16.0" y="28.0" font-size="17" fill="#222" text-anchor="start" font-weight="bold">Requisições por segundo conforme o número de usuários (curva de capacidade, 16/11)</text>
+<text x="16.0" y="50.0" font-size="12" fill="#555" text-anchor="start" font-weight="normal">Mediana de 3 medições; a haste é a faixa das 3. As duas escalas são logarítmicas. Limites originais.</text>
+<rect x="81.0" y="69.0" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<text x="98.0" y="78.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">Aplicação original</text>
+<circle cx="286.0" cy="74.0" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<text x="298.0" y="78.0" font-size="12" fill="#222" text-anchor="start" font-weight="normal">Versão final</text>
+<line x1="80" y1="396.0" x2="680" y2="396.0" stroke="#e4e4e4"/>
+<text x="72.0" y="400.0" font-size="12" fill="#555" text-anchor="end" font-weight="normal">1</text>
+<line x1="80" y1="298.7" x2="680" y2="298.7" stroke="#e4e4e4"/>
+<text x="72.0" y="302.7" font-size="12" fill="#555" text-anchor="end" font-weight="normal">10</text>
+<line x1="80" y1="201.3" x2="680" y2="201.3" stroke="#e4e4e4"/>
+<text x="72.0" y="205.3" font-size="12" fill="#555" text-anchor="end" font-weight="normal">100</text>
+<line x1="80" y1="104.0" x2="680" y2="104.0" stroke="#e4e4e4"/>
+<text x="72.0" y="108.0" font-size="12" fill="#555" text-anchor="end" font-weight="normal">1.000</text>
+<line x1="110.0" y1="396" x2="110.0" y2="401" stroke="#999999"/>
+<text x="110.0" y="416.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">1</text>
+<line x1="350.0" y1="396" x2="350.0" y2="401" stroke="#999999"/>
+<text x="350.0" y="416.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">5</text>
+<line x1="453.3" y1="396" x2="453.3" y2="401" stroke="#999999"/>
+<text x="453.3" y="416.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">10</text>
+<line x1="556.7" y1="396" x2="556.7" y2="401" stroke="#999999"/>
+<text x="556.7" y="416.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">20</text>
+<line x1="660.0" y1="396" x2="660.0" y2="401" stroke="#999999"/>
+<text x="660.0" y="416.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">40</text>
+<line x1="80" y1="396" x2="680" y2="396" stroke="#999999"/>
+<text x="370.0" y="440.0" font-size="12" fill="#555" text-anchor="middle" font-weight="normal">usuários virtuais simultâneos (escala logarítmica)</text>
+<line x1="556.7" y1="100" x2="556.7" y2="396" stroke="#bbbbbb" stroke-dasharray="4 4"/>
+<text x="556.7" y="94.0" font-size="11" fill="#555" text-anchor="middle" font-weight="normal">carga das outras medições</text>
+<polyline points="110.0,343.8 350.0,359.0 453.3,361.0 556.7,358.5 660.0,360.4" fill="none" stroke="#c0504d" stroke-width="2"/>
+<line x1="110.0" y1="344.0" x2="110.0" y2="343.5" stroke="#222" stroke-width="1.2"/>
+<rect x="105.0" y="338.8" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<text x="110.0" y="365.8" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">3,44</text>
+<line x1="350.0" y1="359.0" x2="350.0" y2="358.6" stroke="#222" stroke-width="1.2"/>
+<rect x="345.0" y="354.0" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<line x1="453.3" y1="361.0" x2="453.3" y2="360.1" stroke="#222" stroke-width="1.2"/>
+<rect x="448.3" y="356.0" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<line x1="556.7" y1="358.6" x2="556.7" y2="358.3" stroke="#222" stroke-width="1.2"/>
+<rect x="551.7" y="353.5" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<text x="556.7" y="380.5" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">2,43</text>
+<line x1="660.0" y1="361.0" x2="660.0" y2="359.9" stroke="#222" stroke-width="1.2"/>
+<rect x="655.0" y="355.4" width="10" height="10" fill="#c0504d" stroke="#ffffff" stroke-width="2"/>
+<text x="660.0" y="382.4" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">2,32</text>
+<text x="704.0" y="364.4" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Aplicação original</text>
+<polyline points="110.0,155.1 350.0,143.6 453.3,143.5 556.7,148.4 660.0,156.7" fill="none" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="110.0" y1="157.7" x2="110.0" y2="152.9" stroke="#222" stroke-width="1.2"/>
+<circle cx="110.0" cy="155.1" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<text x="110.0" y="143.1" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">299</text>
+<line x1="350.0" y1="144.7" x2="350.0" y2="143.2" stroke="#222" stroke-width="1.2"/>
+<circle cx="350.0" cy="143.6" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<line x1="453.3" y1="144.3" x2="453.3" y2="143.0" stroke="#222" stroke-width="1.2"/>
+<circle cx="453.3" cy="143.5" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<text x="453.3" y="131.5" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">392</text>
+<line x1="556.7" y1="148.7" x2="556.7" y2="148.2" stroke="#222" stroke-width="1.2"/>
+<circle cx="556.7" cy="148.4" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<text x="556.7" y="136.4" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">350</text>
+<line x1="660.0" y1="156.8" x2="660.0" y2="155.0" stroke="#222" stroke-width="1.2"/>
+<circle cx="660.0" cy="156.7" r="5.5" fill="#2b6cb0" stroke="#ffffff" stroke-width="2"/>
+<text x="660.0" y="144.7" font-size="12" fill="#222" text-anchor="middle" font-weight="normal">287</text>
+<text x="704.0" y="160.7" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Versão final</text>
+</svg>

@@ -140,6 +140,10 @@ CUSTO = [
     ("custo-03-metade-cpu-menos-memoria-intercalado", "Final, metade da CPU e menos memória (intercalado)"),
 ]
 
+# Curva de capacidade (16/11): usuários virtuais medidos em cada versão; pastas curva-<versão>-vus-<nnn>.
+CURVA_NIVEIS = [1, 5, 10, 20, 40]
+CURVA_VERSOES = [("original", "Aplicação original"), ("final", "Versão final")]
+
 # ---------------------------------------------------------------- leitura das pastas
 
 
@@ -382,6 +386,52 @@ def tabela_custo():
     return "\n".join(linhas), configs, custos
 
 
+def curva():
+    grupos = {}
+    for versao, _ in CURVA_VERSOES:
+        for n in CURVA_NIVEIS:
+            grupos[versao, n] = grupo(por_rotulo(f"*-curva-{versao}-vus-{n:03d}"))
+    controle = grupo(por_rotulo("*-curva-final-vus-020-fim"))
+
+    def erros(g):
+        valores = [m["erros"] for m in g["medicoes"]]
+        return "0%" if max(valores) == 0 else f"{num(min(valores))}–{num(max(valores))}%"
+
+    def linha(nome, n, g):
+        return (f"| {nome} | `{g['commit']}` | {n} | {num(g['reqs'], 2)} ({num(g['reqs_min'], 2)}–{num(g['reqs_max'], 2)}) "
+                f"| {num(g['mediana'])} ms | {num(g['p95'])} ms | {num(g['p99'])} ms | {num(g['little'], 2)} "
+                f"| {num(g['banco_cota'])} · {num(g['api_cota'])} | {num(g['banco_mem'])} · {num(g['api_mem'])} "
+                f"| {erros(g)} | {links(g)} |")
+
+    linhas = [
+        "| Versão | Commit | Usuários | req/s (faixa) | mediana | p95 | p99 | req/s × tempo médio (≈ usuários) | CPU, % da cota (banco · API) | Memória, MiB (banco · API) | Erros | Pastas |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for versao, nome in CURVA_VERSOES:
+        for n in CURVA_NIVEIS:
+            linhas.append(linha(nome, n, grupos[versao, n]))
+    linhas.append(linha("Versão final (controle, fim)", 20, controle))
+
+    picos = {versao: max(CURVA_NIVEIS, key=lambda n: grupos[versao, n]["reqs"]) for versao, _ in CURVA_VERSOES}
+    inicio = grupos["final", 20]
+    linhas += [
+        "",
+        "- **Pico de req/s:** "
+        + "; ".join(f"{nome.lower()}, {num(grupos[v, picos[v]]['reqs'], 2)} req/s com {picos[v]} "
+                    f"{'usuário' if picos[v] == 1 else 'usuários'}" for v, nome in CURVA_VERSOES) + ".",
+        "- **Versão final ÷ original, em req/s:** "
+        + "; ".join(f"{n} {'usuário' if n == 1 else 'usuários'}: {num(grupos['final', n]['reqs'] / grupos['original', n]['reqs'], 0)}×"
+                    for n in CURVA_NIVEIS) + ".",
+        f"- **Controle de deriva** (versão final com 20 usuários no início e no fim, cada um com preparo próprio): "
+        f"{num(inicio['reqs'], 2)} → {num(controle['reqs'], 2)} req/s ({variacao(inicio['reqs'], controle['reqs'])}); "
+        f"faixas {faixas(inicio, controle)}.",
+        "",
+        "Erros: requisições que passaram do limite de 60 s do script de carga (`timeout: '60s'` em `carga/teste-carga.js`). "
+        "Ordem das medições em cada versão: 20, 1, 40, 5 e 10 usuários (embaralhada de propósito, F24 §7.1).",
+    ]
+    return "\n".join(linhas), grupos
+
+
 def resumo_readme(pontos, custos):
     base, final = pontos[1][3], pontos[-1][3]
     original, novo = custos["custo-base-original"], custos["custo-00-limites-originais"]
@@ -418,9 +468,11 @@ def conferir():
 
 # ---------------------------------------------------------------- gráficos (SVG à mão, sem dependências)
 
+# Vermelho × azul em vez de vermelho × verde: o par passa no teste de daltonismo (protanopia ΔE 15,6; o verde dava 5,1).
 COR_BASE = "#c0504d"
-COR_FINAL = "#2e7d5b"
-COR_PASSO = "#6b8fbf"
+COR_FINAL = "#2b6cb0"
+COR_PASSO = "#a3acb8"
+COR_BANCO = "#2b6cb0"
 COR_API = "#e0a030"
 
 
@@ -485,7 +537,7 @@ def barras_cpu(arquivo, titulo, nota, itens):
     s = abrir_svg(largura, altura, titulo)
     s.append(texto(16, 28, titulo, tamanho=17, peso="bold"))
     s.append(texto(16, 50, nota, tamanho=12, cor="#555"))
-    for i, (nome, cor) in enumerate((("banco (cota de 1 CPU)", COR_PASSO), ("API (cota de 0,5 CPU)", COR_API))):
+    for i, (nome, cor) in enumerate((("banco (cota de 1 CPU)", COR_BANCO), ("API (cota de 0,5 CPU)", COR_API))):
         s.append(f'<rect x="{esquerda + i * 200}" y="62" width="12" height="12" fill="{cor}"/>')
         s.append(texto(esquerda + i * 200 + 18, 73, nome, tamanho=12))
     for marca in (0, 25, 50, 75, 100):
@@ -495,10 +547,66 @@ def barras_cpu(arquivo, titulo, nota, itens):
     for i, (rotulo, banco, api) in enumerate(itens):
         y = topo + i * passo
         s.append(texto(esquerda - 8, y + 17, rotulo, ancora="end"))
-        for j, (valor, cor) in enumerate(((banco, COR_PASSO), (api, COR_API))):
+        for j, (valor, cor) in enumerate(((banco, COR_BANCO), (api, COR_API))):
             yy = y + 4 + j * 11
             s.append(f'<rect x="{esquerda}" y="{yy}" width="{x(valor) - esquerda:.1f}" height="10" fill="{cor}"/>')
             s.append(texto(x(valor) + 4, yy + 9, f"{num(valor, 0)}%", tamanho=10, cor="#444"))
+    s.append("</svg>")
+    (IMG / arquivo).write_text("\n".join(s) + "\n", encoding="utf-8")
+
+
+def linhas_log(arquivo, titulo, nota, series, vmin, vmax, marcas, rotulo_marca, rotulo_valor, referencia=None):
+    """Uma linha por versão; x = usuários (escala log), y em escala log. A haste vertical é a faixa das 3 medições.
+    series: (nome, cor, forma, pontos {usuários: grupo}, chave, níveis com valor escrito, rótulo acima?)."""
+    largura, altura, esquerda, direita, topo, baixo = 860, 460, 80, 200, 104, 64
+    base = altura - baixo
+
+    def x(n):  # 30 px de folga para os pontos de 1 usuário não encostarem nos rótulos do eixo y
+        return esquerda + 30 + (largura - esquerda - direita - 30) * math.log10(n) / math.log10(CURVA_NIVEIS[-1])
+
+    def y(v):
+        v = min(max(v, vmin), vmax)
+        return base - (base - topo) * (math.log10(v) - math.log10(vmin)) / (math.log10(vmax) - math.log10(vmin))
+
+    def marcador(cx, cy, forma, cor):
+        if forma == "quadrado":
+            return f'<rect x="{cx - 5:.1f}" y="{cy - 5:.1f}" width="10" height="10" fill="{cor}" stroke="#ffffff" stroke-width="2"/>'
+        return f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="5.5" fill="{cor}" stroke="#ffffff" stroke-width="2"/>'
+
+    s = abrir_svg(largura, altura, titulo)
+    s.append(texto(16, 28, titulo, tamanho=17, peso="bold"))
+    s.append(texto(16, 50, nota, tamanho=12, cor="#555"))
+    for i, (nome, cor, forma, *_) in enumerate(series):
+        s.append(marcador(esquerda + 6 + i * 200, 74, forma, cor))
+        s.append(texto(esquerda + 18 + i * 200, 78, nome, tamanho=12))
+    for marca in marcas:
+        s.append(f'<line x1="{esquerda}" y1="{y(marca):.1f}" x2="{largura - direita + 20}" y2="{y(marca):.1f}" stroke="#e4e4e4"/>')
+        s.append(texto(esquerda - 8, y(marca) + 4, rotulo_marca(marca), tamanho=12, cor="#555", ancora="end"))
+    for n in CURVA_NIVEIS:
+        s.append(f'<line x1="{x(n):.1f}" y1="{base}" x2="{x(n):.1f}" y2="{base + 5}" stroke="#999999"/>')
+        s.append(texto(x(n), base + 20, str(n), tamanho=12, cor="#555", ancora="middle"))
+    s.append(f'<line x1="{esquerda}" y1="{base}" x2="{largura - direita + 20}" y2="{base}" stroke="#999999"/>')
+    s.append(texto((esquerda + largura - direita) / 2, base + 44, "usuários virtuais simultâneos (escala logarítmica)",
+                   tamanho=12, cor="#555", ancora="middle"))
+    s.append(f'<line x1="{x(20):.1f}" y1="{topo - 4}" x2="{x(20):.1f}" y2="{base}" stroke="#bbbbbb" stroke-dasharray="4 4"/>')
+    s.append(texto(x(20), topo - 10, "carga das outras medições", tamanho=11, cor="#555", ancora="middle"))
+    if referencia:
+        valor, rotulo = referencia
+        s.append(f'<line x1="{esquerda}" y1="{y(valor):.1f}" x2="{largura - direita + 20}" y2="{y(valor):.1f}" '
+                 f'stroke="#888888" stroke-dasharray="6 3"/>')
+        s.append(texto(esquerda + 6, y(valor) - 6, rotulo, tamanho=11, cor="#555"))
+    for nome, cor, forma, pontos, chave, escritos, acima in series:
+        trajeto = " ".join(f"{x(n):.1f},{y(pontos[n][chave]):.1f}" for n in CURVA_NIVEIS)
+        s.append(f'<polyline points="{trajeto}" fill="none" stroke="{cor}" stroke-width="2"/>')
+        for n in CURVA_NIVEIS:
+            g = pontos[n]
+            minimo, maximo = y(g[chave + "_min"]), y(g[chave + "_max"])
+            s.append(f'<line x1="{x(n):.1f}" y1="{minimo:.1f}" x2="{x(n):.1f}" y2="{maximo:.1f}" stroke="#222" stroke-width="1.2"/>')
+            s.append(marcador(x(n), y(g[chave]), forma, cor))
+            if n in escritos:
+                dy = min(maximo, y(g[chave]) - 6) - 6 if acima else max(minimo, y(g[chave]) + 6) + 16
+                s.append(texto(x(n), dy, rotulo_valor(g[chave]), tamanho=12, ancora="middle"))
+        s.append(texto(x(CURVA_NIVEIS[-1]) + 44, y(pontos[CURVA_NIVEIS[-1]][chave]) + 4, nome, tamanho=13))
     s.append("</svg>")
     (IMG / arquivo).write_text("\n".join(s) + "\n", encoding="utf-8")
 
@@ -511,7 +619,7 @@ def tempo(ms):
     return f"{num(ms, 0)} ms" if ms < 1000 else f"{num(ms / 1000, 1)} s"
 
 
-def graficos(pontos, configs):
+def graficos(pontos, configs, grupos_curva):
     IMG.mkdir(parents=True, exist_ok=True)
     cadeia = [p for p in pontos if p[0] != "controle-inicio"]
 
@@ -548,6 +656,27 @@ def graficos(pontos, configs):
         esquerda=360,
     )
 
+    def series(chave, escritos, final_acima):
+        return [(nome, COR_BASE if v == "original" else COR_FINAL, "quadrado" if v == "original" else "circulo",
+                 {n: grupos_curva[v, n] for n in CURVA_NIVEIS}, chave, escritos[v], (v == "final") == final_acima)
+                for v, nome in CURVA_VERSOES]
+
+    linhas_log(
+        "curva-vazao.svg",
+        "Requisições por segundo conforme o número de usuários (curva de capacidade, 16/11)",
+        "Mediana de 3 medições; a haste é a faixa das 3. As duas escalas são logarítmicas. Limites originais.",
+        series("reqs", {"original": {1, 20, 40}, "final": {1, 10, 20, 40}}, True),
+        1, 1000, [1, 10, 100, 1000], lambda v: num(v, 0), lambda v: num(v, 0 if v >= 100 else 2),
+    )
+    linhas_log(
+        "curva-p95.svg",
+        "Tempo de resposta p95 conforme o número de usuários (curva de capacidade, 16/11)",
+        "Mediana de 3 medições; a haste é a faixa das 3. As duas escalas são logarítmicas; menor é melhor.",
+        series("p95", {"original": {1, 5, 20}, "final": {1, 5, 20, 40}}, False),
+        5, 100000, [10, 100, 1000, 10000, 100000], lambda v: f"{num(v, 0)} ms" if v < 1000 else f"{num(v / 1000, 0)} s", tempo,
+        referencia=(60000, "limite de 60 s por requisição no script de carga"),
+    )
+
 
 # ---------------------------------------------------------------- experimentos.md
 
@@ -564,13 +693,15 @@ def main():
     experimentos = tabela_experimentos()
     final, pontos = rodada_final()
     custo, configs, custos = tabela_custo()
+    capacidade, grupos_curva = curva()
     verificacao = conferir()
-    graficos(pontos, configs)
+    graficos(pontos, configs, grupos_curva)
 
     conteudo = EXPERIMENTOS_MD.read_text(encoding="utf-8")
     conteudo = substituir_bloco(conteudo, "experimentos", experimentos)
     conteudo = substituir_bloco(conteudo, "rodada-final", final)
     conteudo = substituir_bloco(conteudo, "custo", custo)
+    conteudo = substituir_bloco(conteudo, "curva", capacidade)
     conteudo = substituir_bloco(conteudo, "verificacao", verificacao)
     EXPERIMENTOS_MD.write_text(conteudo, encoding="utf-8")
 

@@ -33,9 +33,10 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 ## 4. Pool de conexões pequeno
 
 - **De onde veio:** F9 (HikariCP, "About Pool Sizing"): conexões ativas perto de `(núcleos × 2) + discos`, e "you want a small pool [...] and you want the rest of the application threads blocked on the pool". O experimento 04 usou `max: 20` de propósito, para isolar o custo de abrir conexões.
-- **A ideia:** `max` de 2 a 4 no `Pool` (`api/src/db.js`), para que menos consultas disputem a única CPU do banco ao mesmo tempo.
-- **O que acredito que ganharia (hipótese):** menos troca de contexto e menos consultas paradas no meio quando a cota de CPU acaba (o banco passa 97,8% dos períodos em throttling no experimento 12), talvez com cauda menor. Pode também piorar, se a fila no pool ficar longa.
-- **Como testaria:** um experimento por valor (2, 4, 8), 3 medições cada, contra o experimento 12.
+  - **Indício medido depois (curva de capacidade, 16/11, `experimentos.md`):** a versão final faz 392 req/s com 5 e 10 usuários e cai para 350 com 20 (−10,8%) e 287 com 40 (−26,8%), com o banco a ~97–100% da cota em todos esses pontos. A CPU do banco por requisição sobe de 2,53 ms (5 e 10 usuários) para 2,85 ms (20) e 3,36 ms (40). Ou seja, concorrência demais no banco custa CPU, e o pool de 20 deixa passar mais consultas simultâneas do que 1 CPU atende bem.
+- **A ideia:** `max` de 2 a 8 no `Pool` (`api/src/db.js`), para que menos consultas disputem a única CPU do banco ao mesmo tempo; os demais pedidos esperam na API.
+- **O que acredito que ganharia (hipótese):** com 20 usuários, voltar para perto do pico da curva (~390 req/s, +10% sobre os 350 de hoje), com menos troca de contexto e menos consultas paradas no meio quando a cota de CPU acaba. Pode também piorar, se a fila no pool ficar longa ou se um pool pequeno deixar a CPU ociosa enquanto as conexões esperam a rede e o Node.
+- **Como testaria:** um experimento por valor (2, 4, 8), 3 medições cada, contra a versão final com `max: 20`, intercalados (A-B-B-A) na mesma sessão; depois, a curva de capacidade (`diagnostico/23-curva-capacidade/curva.sh`) com o melhor valor, para ver se a queda depois de 10 usuários some.
 - **O que precisaria:** nada além do que existe.
 
 ## 5. Índice GiST em vez de GIN para a busca por trigramas

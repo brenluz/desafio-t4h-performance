@@ -5,7 +5,7 @@ Uma linha por ideia aplicada: fonte, status, antes, depois, pastas de resultados
 **De onde vêm os números.** Todo número das tabelas abaixo é gerado por [`analise/gerar.py`](analise/gerar.py) a partir dos arquivos que o `scripts/medir.sh` gravou em `resultados/`. O script só lê essas pastas. Para regenerar as tabelas e os gráficos: `python3 analise/gerar.py` (só biblioteca padrão). O texto fora dos blocos gerados é escrito à mão.
 
 <!-- gerado:verificacao -->
-Conferido por `analise/gerar.py`: 126 pastas lidas, todas com `arquivos alterados sem commit: 0` e "Contrato mantido".
+Conferido por `analise/gerar.py`: 159 pastas lidas, todas com `arquivos alterados sem commit: 0` e "Contrato mantido".
 <!-- /gerado:verificacao -->
 
 **Como ler:**
@@ -94,6 +94,36 @@ Custo por hora = CPUs × 0,04048 + GB × 0,004445 (US$, F22); custo por milhão 
 <!-- /gerado:custo -->
 
 ![Custo estimado por milhão de requisições em cada configuração, em escala logarítmica](artigo/img/custo-por-milhao.svg)
+
+## Curva de capacidade: 1 a 40 usuários
+
+Todas as outras medições usam 20 usuários. Aqui a aplicação original e a versão final foram medidas com 1, 5, 10, 20 e 40 usuários virtuais, 3 vezes cada, nos limites originais, na mesma sessão (16/11), para ver onde cada uma satura. Hipóteses escritas antes de medir e conferência delas no [diário](notas/diario-de-bordo.md#curva-de-capacidade-original--final-com-1-a-40-usuários); script em [`diagnostico/23-curva-capacidade/curva.sh`](diagnostico/23-curva-capacidade/curva.sh).
+
+<!-- gerado:curva -->
+| Versão | Commit | Usuários | req/s (faixa) | mediana | p95 | p99 | req/s × tempo médio (≈ usuários) | CPU, % da cota (banco · API) | Memória, MiB (banco · API) | Erros | Pastas |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Aplicação original | `1b5bd26` | 1 | 3,44 (3,42–3,46) | 73,3 ms | 900,9 ms | 1.189,0 ms | 1,00 | 96,0 · 13,0 | 368,3 · 26,5 | 0% | [140824](resultados/20261116-140824-curva-original-vus-001/resumo.txt) [140956](resultados/20261116-140956-curva-original-vus-001/resumo.txt) [141128](resultados/20261116-141128-curva-original-vus-001/resumo.txt) |
+| Aplicação original | `1b5bd26` | 5 | 2,40 (2,40–2,42) | 606,4 ms | 7.098,3 ms | 7.644,8 ms | 4,93 | 96,9 · 10,8 | 371,2 · 24,0 | 0% | [141836](resultados/20261116-141836-curva-original-vus-005/resumo.txt) [142010](resultados/20261116-142010-curva-original-vus-005/resumo.txt) [142143](resultados/20261116-142143-curva-original-vus-005/resumo.txt) |
+| Aplicação original | `1b5bd26` | 10 | 2,29 (2,29–2,34) | 1.017,8 ms | 14.299,1 ms | 16.399,1 ms | 9,82 | 98,5 · 12,8 | 401,6 · 27,3 | 0% | [142318](resultados/20261116-142318-curva-original-vus-010/resumo.txt) [142456](resultados/20261116-142456-curva-original-vus-010/resumo.txt) [142631](resultados/20261116-142631-curva-original-vus-010/resumo.txt) |
+| Aplicação original | `1b5bd26` | 20 | 2,43 (2,42–2,44) | 1.397,3 ms | 29.927,6 ms | 35.118,7 ms | 18,89 | 98,0 · 14,0 | 388,0 · 29,1 | 0% | [140318](resultados/20261116-140318-curva-original-vus-020/resumo.txt) [140459](resultados/20261116-140459-curva-original-vus-020/resumo.txt) [140642](resultados/20261116-140642-curva-original-vus-020/resumo.txt) |
+| Aplicação original | `1b5bd26` | 40 | 2,32 (2,29–2,35) | 1.893,5 ms | 59.997,4 ms | 59.998,2 ms | 35,45 | 97,8 · 14,4 | 400,0 · 35,8 | 0,5–9,8% | [141300](resultados/20261116-141300-curva-original-vus-040/resumo.txt) [141449](resultados/20261116-141449-curva-original-vus-040/resumo.txt) [141639](resultados/20261116-141639-curva-original-vus-040/resumo.txt) |
+| Versão final | `c788e43` | 1 | 298,89 (280,54–314,41) | 1,7 ms | 15,7 ms | 21,5 ms | 0,95 | 65,0 · 60,6 | 420,1 · 73,4 | 0% | [134445](resultados/20261116-134445-curva-final-vus-001/resumo.txt) [134605](resultados/20261116-134605-curva-final-vus-001/resumo.txt) [134725](resultados/20261116-134725-curva-final-vus-001/resumo.txt) |
+| Versão final | `c788e43` | 5 | 392,13 (381,78–395,45) | 3,1 ms | 77,2 ms | 95,3 ms | 4,94 | 99,1 · 73,0 | 432,6 · 73,4 | 0% | [135247](resultados/20261116-135247-curva-final-vus-005/resumo.txt) [135408](resultados/20261116-135408-curva-final-vus-005/resumo.txt) [135528](resultados/20261116-135528-curva-final-vus-005/resumo.txt) |
+| Versão final | `c788e43` | 10 | 392,45 (385,42–397,31) | 6,3 ms | 93,9 ms | 182,0 ms | 9,94 | 99,4 · 66,2 | 447,8 · 73,6 | 0% | [135649](resultados/20261116-135649-curva-final-vus-010/resumo.txt) [135808](resultados/20261116-135808-curva-final-vus-010/resumo.txt) [135928](resultados/20261116-135928-curva-final-vus-010/resumo.txt) |
+| Versão final | `c788e43` | 20 | 350,09 (347,08–351,30) | 18,1 ms | 189,6 ms | 300,9 ms | 19,92 | 99,7 · 59,8 | 453,3 · 73,1 | 0% | [134046](resultados/20261116-134046-curva-final-vus-020/resumo.txt) [134206](resultados/20261116-134206-curva-final-vus-020/resumo.txt) [134326](resultados/20261116-134326-curva-final-vus-020/resumo.txt) |
+| Versão final | `c788e43` | 40 | 287,12 (286,96–299,03) | 104,6 ms | 305,8 ms | 494,6 ms | 39,85 | 96,6 · 63,0 | 477,5 · 73,1 | 0% | [134845](resultados/20261116-134845-curva-final-vus-040/resumo.txt) [135006](resultados/20261116-135006-curva-final-vus-040/resumo.txt) [135126](resultados/20261116-135126-curva-final-vus-040/resumo.txt) |
+| Versão final (controle, fim) | `c788e43` | 20 | 343,04 (340,80–346,73) | 20,2 ms | 192,4 ms | 301,5 ms | 19,92 | 100,4 · 59,6 | 439,7 · 27,8 | 0% | [143037](resultados/20261116-143037-curva-final-vus-020-fim/resumo.txt) [143157](resultados/20261116-143157-curva-final-vus-020-fim/resumo.txt) [143316](resultados/20261116-143316-curva-final-vus-020-fim/resumo.txt) |
+
+- **Pico de req/s:** aplicação original, 3,44 req/s com 1 usuário; versão final, 392,45 req/s com 10 usuários.
+- **Versão final ÷ original, em req/s:** 1 usuário: 87×; 5 usuários: 163×; 10 usuários: 171×; 20 usuários: 144×; 40 usuários: 124×.
+- **Controle de deriva** (versão final com 20 usuários no início e no fim, cada um com preparo próprio): 350,09 → 343,04 req/s (−2,0%); faixas separadas.
+
+Erros: requisições que passaram do limite de 60 s do script de carga (`timeout: '60s'` em `carga/teste-carga.js`). Ordem das medições em cada versão: 20, 1, 40, 5 e 10 usuários (embaralhada de propósito, F24 §7.1).
+<!-- /gerado:curva -->
+
+![Requisições por segundo da aplicação original e da versão final com 1, 5, 10, 20 e 40 usuários, em escala logarítmica](artigo/img/curva-vazao.svg)
+
+![Tempo de resposta p95 da aplicação original e da versão final com 1, 5, 10, 20 e 40 usuários, em escala logarítmica](artigo/img/curva-p95.svg)
 
 ## Medições descartadas
 
