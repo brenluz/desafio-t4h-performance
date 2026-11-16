@@ -30,6 +30,8 @@ Seção acrescentada com a solução do desafio. Daqui para baixo, a partir de [
 | Custo estimado por milhão de requisições (estudo de custo, 11/11, preços do AWS Fargate) | US$ 7,48 | US$ 0,068 | 110× menor |
 
 Tempos e req/s: mediana de 3 medições de cada versão na rodada final (12/11), na mesma sessão ([tabela completa](experimentos.md#rodada-final-a-cadeia-inteira-numa-sessão-só)). Com **um quarto da CPU** (banco 0,25, API 0,125), a versão final ainda fez 68,44 req/s, 29× a aplicação original com toda a CPU, com custo por hora −71,1% ([estudo de custo](experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).
+
+**O ganho depende da carga.** Os 134,8× acima são com 20 usuários, como todas as medições do desafio. Na curva de capacidade (16/11, outra sessão), com 1 a 40 usuários, as req/s da versão final ficaram entre 87× (1 usuário) e 171× (10 usuários) as da original (144× com 20). A original já satura com 1 usuário. A versão final chega ao pico com 5 a 10 usuários (~392 req/s) e perde vazão com mais usuários: 350 req/s com 20 e 287 com 40 ([curva de capacidade](experimentos.md#curva-de-capacidade-1-a-40-usuários)).
 <!-- /gerado:resumo -->
 
 **Onde está cada coisa:**
@@ -37,7 +39,7 @@ Tempos e req/s: mediana de 3 medições de cada versão na rodada final (12/11),
 | Arquivo ou pasta | O que tem |
 | --- | --- |
 | [`artigo/artigo.md`](artigo/artigo.md) | O artigo: diagnóstico, estado da arte, alternativas, escolha e resultados |
-| [`experimentos.md`](experimentos.md) | Uma linha por mudança: fonte, status, antes, depois, pastas de resultados e conclusão; rodada final e estudo de custo |
+| [`experimentos.md`](experimentos.md) | Uma linha por mudança: fonte, status, antes, depois, pastas de resultados e conclusão; rodada final, estudo de custo e curva de capacidade |
 | [`proximos-testes.md`](proximos-testes.md) | Ideias pesquisadas e não testadas, com o que ganhariam e como testar |
 | [`notas/diario-de-bordo.md`](notas/diario-de-bordo.md) | O registro completo: hipóteses escritas antes de medir, previsões × resultado, fontes com citações, alternativas, limites, uso de IA |
 | [`diagnostico/`](diagnostico/) | As saídas brutas de cada diagnóstico e pré-teste citadas no diário |
@@ -61,7 +63,7 @@ git switch master
 docker compose down -v && docker compose up -d --build
 ```
 
-Para medir a cadeia inteira, da linha de base à versão final, numa sessão só: [`diagnostico/22-rodada-final/rodada.sh`](diagnostico/22-rodada-final/rodada.sh) (~2h30). Para regenerar as tabelas e os gráficos depois de novas medições: `python3 analise/gerar.py` (só biblioteca padrão do Python).
+Para medir a cadeia inteira, da linha de base à versão final, numa sessão só: [`diagnostico/22-rodada-final/rodada.sh`](diagnostico/22-rodada-final/rodada.sh) (~2h30). Para a curva de capacidade (original e final com 1 a 40 usuários): [`diagnostico/23-curva-capacidade/curva.sh`](diagnostico/23-curva-capacidade/curva.sh) (~1h). Os dois scripts trocam de commit com `git switch`, então rode a partir de uma cópia fora do repositório. Para regenerar as tabelas e os gráficos depois de novas medições: `python3 analise/gerar.py` (só biblioteca padrão do Python).
 
 ## Prazo e entrega
 

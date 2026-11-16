@@ -432,10 +432,17 @@ def curva():
     return "\n".join(linhas), grupos
 
 
-def resumo_readme(pontos, custos):
+def resumo_readme(pontos, custos, grupos_curva):
     base, final = pontos[1][3], pontos[-1][3]
     original, novo = custos["custo-base-original"], custos["custo-00-limites-originais"]
     quarto = custos["custo-02-um-quarto-cpu"]
+    razoes = {n: grupos_curva["final", n]["reqs"] / grupos_curva["original", n]["reqs"] for n in CURVA_NIVEIS}
+    menor, maior = min(razoes, key=razoes.get), max(razoes, key=razoes.get)
+    maximo = max(grupos_curva["final", n]["reqs"] for n in CURVA_NIVEIS)
+    picos = [n for n in CURVA_NIVEIS if grupos_curva["final", n]["reqs"] >= 0.99 * maximo]  # empatados com o pico
+
+    def usuarios(n):
+        return f"{n} {'usuário' if n == 1 else 'usuários'}"
 
     def linha(nome, a, d, casas=1, unidade=" ms"):
         return f"| {nome} | {num(a, casas)}{unidade} | {num(d, casas)}{unidade} | {variacao(a, d)} |"
@@ -455,6 +462,14 @@ def resumo_readme(pontos, custos):
         f"Com **um quarto da CPU** (banco 0,25, API 0,125), a versão final ainda fez {num(quarto['grupo']['reqs'], 2)} req/s, "
         f"{num(quarto['grupo']['reqs'] / original['grupo']['reqs'], 0)}× a aplicação original com toda a CPU, "
         f"com custo por hora {variacao(original['hora'], quarto['hora'])} ([estudo de custo](experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).",
+        "",
+        f"**O ganho depende da carga.** Os {num(final['reqs'] / base['reqs'], 1)}× acima são com 20 usuários, como todas as "
+        f"medições do desafio. Na curva de capacidade (16/11, outra sessão), com 1 a 40 usuários, as req/s da versão final "
+        f"ficaram entre {num(razoes[menor], 0)}× ({usuarios(menor)}) e {num(razoes[maior], 0)}× ({usuarios(maior)}) as da "
+        f"original ({num(razoes[20], 0)}× com 20). A original já satura com 1 usuário. A versão final chega ao pico com "
+        f"{' a '.join(str(n) for n in picos)} usuários (~{num(maximo, 0)} req/s) e perde vazão com mais usuários: "
+        f"{num(grupos_curva['final', 20]['reqs'], 0)} req/s com 20 e {num(grupos_curva['final', CURVA_NIVEIS[-1]]['reqs'], 0)} "
+        f"com {CURVA_NIVEIS[-1]} ([curva de capacidade](experimentos.md#curva-de-capacidade-1-a-40-usuários)).",
     ])
 
 
@@ -706,7 +721,7 @@ def main():
     EXPERIMENTOS_MD.write_text(conteudo, encoding="utf-8")
 
     readme = README_MD.read_text(encoding="utf-8")
-    README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos), README_MD), encoding="utf-8")
+    README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos, grupos_curva), README_MD), encoding="utf-8")
     print(verificacao)
     print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)}, {README_MD.relative_to(RAIZ)} e "
           f"{len(list(IMG.glob('*.svg')))} gráficos em {IMG.relative_to(RAIZ)}/")
