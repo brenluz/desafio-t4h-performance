@@ -65,7 +65,7 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 
 ## 8. Paginação por cursor (keyset)
 
-- **De onde veio:** F11 (Winand, "no-offset"): o método de busca por chave é "even faster than offset" (afirmação sem números na página).
+- **De onde veio:** F11 (Winand, "no-offset"): em vez de pular linhas, "just use a `where` clause that selects only data you haven’t seen yet"; o método é "even faster than `offset`" (afirmação sem números na página). A mesma página registra o custo: "you cannot directly navigate to arbitrary pages", e o cliente passa a enviar "a full keyset (often multiple columns)" em vez do número da página.
 - **A ideia:** em vez de `pagina=N`, o cliente envia o último `(criado_em, id)` visto.
 - **Por que não foi feito:** **quebra o contrato** (a API expõe `pagina` numérica de acesso aleatório). O experimento 06 (late row lookup) foi a alternativa compatível.
 - **Como testaria:** só numa versão nova da API, com o contrato renegociado.

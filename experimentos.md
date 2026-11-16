@@ -144,7 +144,7 @@ Os códigos F1–F22 das tabelas. Lista completa, com as citações literais, na
 | F3 | PostgreSQL 16 Documentation, F.32 pg_stat_statements | https://www.postgresql.org/docs/16/pgstatstatements.html |
 | F4 | PostgreSQL 16 Documentation, 11.4 Indexes and ORDER BY | https://www.postgresql.org/docs/16/indexes-ordering.html |
 | F5 | GraphQL Foundation, DataLoader (README, "Batching") | https://github.com/graphql/dataloader#batching |
-| F6 | Rails Guides, Active Record Query Interface, "N + 1 Queries Problem" (texto ainda a conferir) | https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem |
+| F6 | Rails Guides, Active Record Query Interface, "N + 1 Queries Problem" | https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem |
 | F7 | PostgreSQL 16 Documentation, 52.2 How Connections Are Established | https://www.postgresql.org/docs/16/connect-estab.html |
 | F8 | node-postgres, Pooling e API do Pool | https://node-postgres.com/features/pooling |
 | F9 | Brett Wooldridge, HikariCP wiki, About Pool Sizing | https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing |
