@@ -32,7 +32,7 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 
 ## 4. Pool de conexões pequeno
 
-- **De onde veio:** F9 (HikariCP, "About Pool Sizing"): conexões ativas perto de `(núcleos × 2) + discos`, e "you want a small pool [...] and you want the rest of the application threads blocked on the pool". O experimento 04 usou `max: 20` de propósito, para isolar o custo de abrir conexões.
+- **De onde veio:** F9 (HikariCP, "About Pool Sizing"): conexões ativas perto de `(núcleos × 2) + discos`, e "you want a small pool [...] and you want the rest of the application threads blocked on the pool". O experimento 04 usou `max: 20` de propósito, para isolar o custo de abrir conexões. F27 (Schroeder et al., ICDE 2006): com 1 CPU, "the throughput reaches its maximum at an MPL of about 5", e "if this MPL is set too high, then throughput will start to drop" (em bancos com escrita e travas; aqui a API só lê).
   - **Indício medido depois (curva de capacidade, 16/11, `experimentos.md`):** a versão final faz 392 req/s com 5 e 10 usuários e cai para 350 com 20 (−10,8%) e 287 com 40 (−26,8%), com o banco a ~97–100% da cota em todos esses pontos. A CPU do banco por requisição sobe de 2,53 ms (5 e 10 usuários) para 2,85 ms (20) e 3,36 ms (40). Ou seja, concorrência demais no banco custa CPU, e o pool de 20 deixa passar mais consultas simultâneas do que 1 CPU atende bem.
 - **A ideia:** `max` de 2 a 8 no `Pool` (`api/src/db.js`), para que menos consultas disputem a única CPU do banco ao mesmo tempo; os demais pedidos esperam na API.
 - **O que acredito que ganharia (hipótese):** com 20 usuários, voltar para perto do pico da curva (~390 req/s, +10% sobre os 350 de hoje), com menos troca de contexto e menos consultas paradas no meio quando a cota de CPU acaba. Pode também piorar, se a fila no pool ficar longa ou se um pool pequeno deixar a CPU ociosa enquanto as conexões esperam a rede e o Node.
@@ -77,6 +77,7 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 As referências completas, com links e trechos, estão na tabela de fontes de `notas/diario-de-bordo.md`:
 
 - F9: Brett Wooldridge, "About Pool Sizing" (HikariCP Wiki). https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing
+- F27: Bianca Schroeder et al., "How to Determine a Good Multi-Programming Level for External Scheduling", ICDE 2006. https://www.cs.cmu.edu/~harchol/Papers/icde06.pdf
 - F11: Markus Winand, "We need tool support for keyset pagination". https://use-the-index-luke.com/no-offset
 - F13: PostgreSQL 16, 41.3 Materialized Views. https://www.postgresql.org/docs/16/rules-materializedviews.html
 - F14: PostgreSQL 16, REFRESH MATERIALIZED VIEW. https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html

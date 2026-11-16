@@ -165,3 +165,4 @@ Os códigos F1–F22 das tabelas. Lista completa, com as citações literais, na
 | F24 | Maricq et al. Taming Performance Variability. OSDI '18 (método: variabilidade, medianas, ordem das medições) | https://www.usenix.org/system/files/osdi18-maricq.pdf |
 | F25 | Chen et al. Detecting Performance Anti-patterns for Applications Developed using Object-Relational Mapping. ICSE '14 | https://ece.uwaterloo.ca/~wshang/pubs/peter_icse2014.pdf |
 | F26 | John D. C. Little. Little's Law as Viewed on Its 50th Anniversary. Operations Research 59(3), 2011 (lei de Little, L = λW) | https://people.cs.umass.edu/~emery/classes/cmpsci691st/readings/OS/Littles-Law-50-Years-Later.pdf |
+| F27 | Bianca Schroeder, Mor Harchol-Balter, Adam Wierman, Arun Iyengar, Erich Nahum. How to Determine a Good Multi-Programming Level for External Scheduling. ICDE 2006 (limitar as transações simultâneas no banco; curva de capacidade) | https://www.cs.cmu.edu/~harchol/Papers/icde06.pdf |
