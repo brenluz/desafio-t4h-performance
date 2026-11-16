@@ -4,6 +4,65 @@ Aplicação do desafio técnico da vaga de estágio em Pesquisa e Inovação da 
 
 A aplicação é a API de uma loja fictícia, em Node.js (Express) com PostgreSQL 16, rodando em containers. Ela funciona, mas fica lenta sob carga e gasta mais recursos do que deveria. Todos os dados são sintéticos e gerados na primeira subida: 100 mil clientes, 20 mil produtos, 500 mil pedidos e 1,5 milhão de itens de pedido.
 
+## Resultado deste trabalho
+
+Seção acrescentada com a solução do desafio. Daqui para baixo, a partir de [Prazo e entrega](#prazo-e-entrega), o README é o original, com as instruções de instalar, rodar e medir.
+
+**O problema.** Com 20 usuários simultâneos, o banco ficava no teto da sua CPU o tempo todo e as rotas lentas levavam dezenas de segundos. Os diagnósticos (em [`diagnostico/`](diagnostico/), com `pg_stat_statements`, `EXPLAIN (ANALYZE, BUFFERS)`, perfil da API e contadores do cgroup) apontaram as causas:
+
+- nenhum índice além das chaves primárias: as buscas por cliente, por status, por dia, por e-mail e por trecho do nome liam tabelas inteiras;
+- um N+1 em `/clientes/:id/pedidos` e uma conexão nova com o PostgreSQL a cada consulta;
+- a paginação de `/pedidos` lendo da tabela as linhas que o `OFFSET` ia descartar;
+- relatórios recalculados a cada chamada: `top-produtos` sobre todos os itens, o `count(*)` do total por status e a agregação de vendas por dia feita no Node;
+- configuração do PostgreSQL que não combina com o limite de 1 CPU (consultas paralelas dividindo a mesma cota) e um cache menor que a tabela mais usada.
+
+**O que mudou.** 14 mudanças aplicadas e medidas, cada uma no seu commit, e 2 aplicadas sem ganho e desfeitas. A lista, com antes e depois de cada uma, está em [`experimentos.md`](experimentos.md). O que as rotas respondem continua igual: o verificador de contrato passou em todas as medições.
+
+**Resultado, com os mesmos limites de CPU e memória do enunciado:**
+
+<!-- gerado:resumo -->
+| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão final | Variação |
+| --- | --- | --- | --- |
+| Requisições por segundo | 2,61 | 351,81 | 134,8× |
+| Tempo de resposta, mediana | 1.299,0 ms | 18,5 ms | −98,6% |
+| Tempo de resposta, p95 | 25.375,2 ms | 189,1 ms | −99,3% |
+| Tempo de resposta, p99 | 29.794,0 ms | 298,2 ms | −99,0% |
+| Custo estimado por milhão de requisições (estudo de custo, 11/11, preços do AWS Fargate) | US$ 7,48 | US$ 0,068 | 110× menor |
+
+Tempos e req/s: mediana de 3 medições de cada versão na rodada final (12/11), na mesma sessão ([tabela completa](experimentos.md#rodada-final-a-cadeia-inteira-numa-sessão-só)). Com **um quarto da CPU** (banco 0,25, API 0,125), a versão final ainda fez 68,44 req/s, 29× a aplicação original com toda a CPU, com custo por hora −71,1% ([estudo de custo](experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).
+<!-- /gerado:resumo -->
+
+**Onde está cada coisa:**
+
+| Arquivo ou pasta | O que tem |
+| --- | --- |
+| [`artigo/artigo.md`](artigo/artigo.md) | O artigo: diagnóstico, estado da arte, alternativas, escolha e resultados |
+| [`experimentos.md`](experimentos.md) | Uma linha por mudança: fonte, status, antes, depois, pastas de resultados e conclusão; rodada final e estudo de custo |
+| [`proximos-testes.md`](proximos-testes.md) | Ideias pesquisadas e não testadas, com o que ganhariam e como testar |
+| [`notas/diario-de-bordo.md`](notas/diario-de-bordo.md) | O registro completo: hipóteses escritas antes de medir, previsões × resultado, fontes com citações, alternativas, limites, uso de IA |
+| [`diagnostico/`](diagnostico/) | As saídas brutas de cada diagnóstico e pré-teste citadas no diário |
+| [`resultados/`](resultados/) | Todas as medições do `medir.sh`, sem edição |
+| [`analise/gerar.py`](analise/gerar.py) | Gera as tabelas do `experimentos.md`, o resumo acima e os gráficos de `artigo/img/` a partir de `resultados/` |
+| `banco/03-*.sql` a `banco/10-*.sql`, `api/src/`, `docker-compose.yml` | As mudanças em si |
+
+**Como repetir a comparação principal** (cada medição leva ~1 min 30 s; meça 3 vezes cada versão, na mesma sessão):
+
+```bash
+# versão final
+docker compose down -v && docker compose up -d --build
+scripts/verificar-contrato.sh comparar      # precisa terminar em "Contrato mantido"
+scripts/medir.sh minha-versao-final          # 3 vezes
+
+# aplicação original (commit da linha de base)
+git switch --detach 1b5bd26
+docker compose down -v && docker compose up -d --build
+scripts/medir.sh minha-versao-original       # 3 vezes
+git switch master
+docker compose down -v && docker compose up -d --build
+```
+
+Para medir a cadeia inteira, da linha de base à versão final, numa sessão só: [`diagnostico/22-rodada-final/rodada.sh`](diagnostico/22-rodada-final/rodada.sh) (~2h30). Para regenerar as tabelas e os gráficos depois de novas medições: `python3 analise/gerar.py` (só biblioteca padrão do Python).
+
 ## Prazo e entrega
 
 - **Prazo e entregas:** estão no enunciado enviado na largada

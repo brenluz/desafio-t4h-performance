@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera as tabelas do experimentos.md e os gráficos de artigo/img/ a partir de resultados/.
+"""Gera as tabelas do experimentos.md, o resumo do README e os gráficos de artigo/img/ a partir de resultados/.
 
 Só lê resultados/, nunca escreve lá. Os números das tabelas são os dos arquivos gravados pelo
 medir.sh (resumo.txt, recursos.txt, contexto.txt, contrato.txt). As únicas contas feitas aqui são:
@@ -10,6 +10,7 @@ Usa só a biblioteca padrão do Python.
 Uso, na raiz do repositório:  python3 analise/gerar.py
 """
 
+import json
 import math
 import re
 import statistics
@@ -20,6 +21,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 RESULTADOS = RAIZ / "resultados"
 IMG = RAIZ / "artigo" / "img"
 EXPERIMENTOS_MD = RAIZ / "experimentos.md"
+README_MD = RAIZ / "README.md"
 
 # AWS Fargate, Linux/x86, US East, conferido em 11/11/2026 (F22). Serve para comparar configurações, não é orçamento.
 PRECO_VCPU_HORA = 0.04048
@@ -147,6 +149,9 @@ def ler_medicao(pasta):
     contexto = (pasta / "contexto.txt").read_text(encoding="utf-8")
     contrato = (pasta / "contrato.txt").read_text(encoding="utf-8")
 
+    k6 = json.loads((pasta / "resumo-k6.json").read_text(encoding="utf-8"))["metrics"]
+    duracao = k6["http_req_duration"].get("values", k6["http_req_duration"])
+
     tempos = re.search(r"mediana ([\d.]+) ms \| p95 ([\d.]+) ms \| p99 ([\d.]+) ms", resumo)
     m = {
         "pasta": pasta.name,
@@ -155,6 +160,7 @@ def ler_medicao(pasta):
         "p95": float(tempos.group(2)),
         "p99": float(tempos.group(3)),
         "erros": float(re.search(r"^Erros:\s+([\d.]+)%", resumo, re.M).group(1)),
+        "media": duracao["avg"],
         "commit": re.search(r"^commit: (\S+)", contexto, re.M).group(1),
         "sem_commit": int(re.search(r"^arquivos alterados sem commit: (\d+)", contexto, re.M).group(1)),
         "contrato": "Contrato mantido" in contrato,
@@ -216,6 +222,8 @@ def grupo(pastas):
         g[chave] = med(lambda m: m[chave])
         g[chave + "_min"] = min(m[chave] for m in medicoes)
         g[chave + "_max"] = max(m[chave] for m in medicoes)
+    # Lei de Little (F26): na carga de ciclo fechado sem pausa, usuários ≈ req/s × tempo médio de resposta.
+    g["little"] = med(lambda m: m["reqs"] * m["media"] / 1000)
     for servico in ("banco", "api"):
         for chave in ("cota", "mem"):
             g[f"{servico}_{chave}"] = med(lambda m: m[servico][chave])
@@ -308,8 +316,8 @@ def rodada_final():
     originais = {e["id"]: e for e in EXPERIMENTOS}
 
     linhas = [
-        "| Ponto | Commit | req/s (faixa) | mediana | p95 | p99 | CPU, % da cota (banco · API) | Memória, MiB (banco · API) | Ganho sobre o ponto anterior | Ganho no experimento original | Pastas |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Ponto | Commit | req/s (faixa) | mediana | p95 | p99 | req/s × tempo médio (≈ 20 usuários) | CPU, % da cota (banco · API) | Memória, MiB (banco · API) | Ganho sobre o ponto anterior | Ganho no experimento original | Pastas |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     anterior = None
     for rotulo, nome, exp, g in pontos:
@@ -322,7 +330,7 @@ def rodada_final():
             original = "—"
         linhas.append(
             f"| {nome} | `{g['commit']}` | {num(g['reqs'], 2)} ({num(g['reqs_min'], 2)}–{num(g['reqs_max'], 2)}) "
-            f"| {num(g['mediana'])} ms | {num(g['p95'])} ms | {num(g['p99'])} ms "
+            f"| {num(g['mediana'])} ms | {num(g['p95'])} ms | {num(g['p99'])} ms | {num(g['little'], 2)} "
             f"| {num(g['banco_cota'])} · {num(g['api_cota'])} | {num(g['banco_mem'])} · {num(g['api_mem'])} "
             f"| {ganho} | {original} | {links(g)} |"
         )
@@ -347,7 +355,7 @@ def tabela_custo():
         "| Configuração | Limites (banco / API) | Recursos somados | req/s (faixa) | p95 | p99 | US$ por hora | US$ por milhão de req. | Pastas |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    configs = []
+    configs, custos = [], {}
     for rotulo, nome in CUSTO:
         g = grupo(por_rotulo(f"*-{rotulo}"))
         if len(g["limites"]) != 1:
@@ -358,6 +366,7 @@ def tabela_custo():
         milhao = hora / (g["reqs"] * 3600) * 1e6
         por_execucao = [hora / (m["reqs"] * 3600) * 1e6 for m in g["medicoes"]]
         configs.append((nome, milhao, min(por_execucao), max(por_execucao)))
+        custos[rotulo] = {"grupo": g, "hora": hora, "milhao": milhao}
         linhas.append(
             f"| {nome} | {num(banco_cpus, 3).rstrip('0').rstrip(',')} CPU · {mb(banco_mem)} MB / "
             f"{num(api_cpus, 3).rstrip('0').rstrip(',')} CPU · {mb(api_mem)} MB "
@@ -370,7 +379,33 @@ def tabela_custo():
         f"Custo por hora = CPUs × {num(PRECO_VCPU_HORA, 5)} + GB × {num(PRECO_GB_HORA, 6)} (US$, F22); "
         "custo por milhão = custo por hora ÷ (req/s × 3.600) × 10⁶, com a mediana de req/s.",
     ]
-    return "\n".join(linhas), configs
+    return "\n".join(linhas), configs, custos
+
+
+def resumo_readme(pontos, custos):
+    base, final = pontos[1][3], pontos[-1][3]
+    original, novo = custos["custo-base-original"], custos["custo-00-limites-originais"]
+    quarto = custos["custo-02-um-quarto-cpu"]
+
+    def linha(nome, a, d, casas=1, unidade=" ms"):
+        return f"| {nome} | {num(a, casas)}{unidade} | {num(d, casas)}{unidade} | {variacao(a, d)} |"
+
+    return "\n".join([
+        "| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão final | Variação |",
+        "| --- | --- | --- | --- |",
+        linha("Requisições por segundo", base["reqs"], final["reqs"], 2, ""),
+        linha("Tempo de resposta, mediana", base["mediana"], final["mediana"]),
+        linha("Tempo de resposta, p95", base["p95"], final["p95"]),
+        linha("Tempo de resposta, p99", base["p99"], final["p99"]),
+        f"| Custo estimado por milhão de requisições (estudo de custo, 11/11, preços do AWS Fargate) | US$ {dinheiro(original['milhao'])} "
+        f"| US$ {dinheiro(novo['milhao'])} | {num(original['milhao'] / novo['milhao'], 0)}× menor |",
+        "",
+        "Tempos e req/s: mediana de 3 medições de cada versão na rodada final (12/11), na mesma sessão "
+        "([tabela completa](experimentos.md#rodada-final-a-cadeia-inteira-numa-sessão-só)). "
+        f"Com **um quarto da CPU** (banco 0,25, API 0,125), a versão final ainda fez {num(quarto['grupo']['reqs'], 2)} req/s, "
+        f"{num(quarto['grupo']['reqs'] / original['grupo']['reqs'], 0)}× a aplicação original com toda a CPU, "
+        f"com custo por hora {variacao(original['hora'], quarto['hora'])} ([estudo de custo](experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).",
+    ])
 
 
 def conferir():
@@ -517,18 +552,18 @@ def graficos(pontos, configs):
 # ---------------------------------------------------------------- experimentos.md
 
 
-def substituir_bloco(conteudo, nome, novo):
+def substituir_bloco(conteudo, nome, novo, arquivo=EXPERIMENTOS_MD):
     inicio, fim = f"<!-- gerado:{nome} -->", f"<!-- /gerado:{nome} -->"
     padrao = re.compile(re.escape(inicio) + ".*?" + re.escape(fim), re.S)
     if not padrao.search(conteudo):
-        sys.exit(f"marcador {inicio} não encontrado em {EXPERIMENTOS_MD.name}")
+        sys.exit(f"marcador {inicio} não encontrado em {arquivo.name}")
     return padrao.sub(lambda _: f"{inicio}\n{novo}\n{fim}", conteudo)
 
 
 def main():
     experimentos = tabela_experimentos()
     final, pontos = rodada_final()
-    custo, configs = tabela_custo()
+    custo, configs, custos = tabela_custo()
     verificacao = conferir()
     graficos(pontos, configs)
 
@@ -538,8 +573,12 @@ def main():
     conteudo = substituir_bloco(conteudo, "custo", custo)
     conteudo = substituir_bloco(conteudo, "verificacao", verificacao)
     EXPERIMENTOS_MD.write_text(conteudo, encoding="utf-8")
+
+    readme = README_MD.read_text(encoding="utf-8")
+    README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos), README_MD), encoding="utf-8")
     print(verificacao)
-    print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)} e {len(list(IMG.glob('*.svg')))} gráficos em {IMG.relative_to(RAIZ)}/")
+    print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)}, {README_MD.relative_to(RAIZ)} e "
+          f"{len(list(IMG.glob('*.svg')))} gráficos em {IMG.relative_to(RAIZ)}/")
 
 
 if __name__ == "__main__":
