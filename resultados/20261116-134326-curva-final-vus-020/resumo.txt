@@ -1,0 +1,17 @@
+Medição: curva-final-vus-020
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        21124
+Requisições/s:      351.30
+Tempo de resposta:  mediana 17.2 ms | p95 189.6 ms | p99 300.5 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               5361      10.9 ms       92.4 ms       98.5 ms       0.0%    
+cliente-por-email     3165      10.8 ms       93.5 ms       99.1 ms       0.0%    
+pedidos-do-cliente    4282      18.5 ms       99.9 ms       106.3 ms      0.0%    
+pedidos-por-status    3082      78.0 ms       103.8 ms      188.4 ms      0.0%    
+busca-produtos        3131      18.5 ms       101.7 ms      107.2 ms      0.0%    
+vendas-por-dia        1707      195.7 ms      311.7 ms      405.1 ms      0.0%    
+top-produtos          396       11.0 ms       93.0 ms       99.5 ms       0.0%    

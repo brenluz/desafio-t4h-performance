@@ -1,0 +1,17 @@
+Medição: curva-original-vus-010
+Carga: 10 usuários virtuais por 60s
+
+Requisições:        150
+Requisições/s:      2.29
+Tempo de resposta:  mediana 1100.6 ms | p95 14648.2 ms | p99 16403.9 ms
+Erros:              0.00%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               37        292.7 ms      495.0 ms      558.0 ms      0.0%    
+cliente-por-email     18        1100.6 ms     1414.2 ms     1481.3 ms     0.0%    
+pedidos-do-cliente    35        12396.4 ms    16031.9 ms    16493.1 ms    0.0%    
+pedidos-por-status    19        4663.9 ms     6617.8 ms     6848.1 ms     0.0%    
+busca-produtos        29        595.6 ms      805.9 ms      856.2 ms      0.0%    
+vendas-por-dia        10        3066.3 ms     6266.5 ms     6301.7 ms     0.0%    
+top-produtos          2         15142.6 ms    17431.7 ms    17635.2 ms    0.0%    
