@@ -61,26 +61,21 @@ rotas.get('/clientes/:id', assincrono(async (req, res) => {
 
 rotas.get('/clientes/:id/pedidos', assincrono(async (req, res) => {
   const id = inteiroPositivo(req.params.id);
-  if (id === null) return res.status(400).json({erro: 'id invalido'});
+  if (id === null) return res.status(400).json({ erro: 'id invalido' });
 
   const clientes = await consultar('SELECT * FROM clientes WHERE id = $1', [id]);
-  if (clientes.length === 0) return res.status(404).json({erro: 'cliente nao encontrado'});
+  if (clientes.length === 0) return res.status(404).json({ erro: 'cliente nao encontrado' });
 
   const linhas = await consultar(
-      `SELECT p.id,
-              p.status,
-              p.criado_em,
-              i.produto_id,
-              pr.nome AS produto_nome,
-              i.quantidade,
-              i.preco_unitario_centavos
+    `SELECT p.id, p.status, p.criado_em,
+            i.produto_id, pr.nome AS produto_nome, i.quantidade, i.preco_unitario_centavos
        FROM pedidos p
-              LEFT JOIN itens_pedido i ON i.pedido_id = p.id
-              LEFT JOIN produtos pr ON pr.id = i.produto_id
-       WHERE p.cliente_id = $1
-       ORDER BY p.criado_em DESC, p.id DESC, i.id`,
-      [id],
-  )
+       LEFT JOIN itens_pedido i ON i.pedido_id = p.id
+       LEFT JOIN produtos pr ON pr.id = i.produto_id
+      WHERE p.cliente_id = $1
+      ORDER BY p.criado_em DESC, p.id DESC, i.id`,
+    [id],
+  );
 
   const resposta = [];
   for (const linha of linhas) {
@@ -105,6 +100,7 @@ rotas.get('/clientes/:id/pedidos', assincrono(async (req, res) => {
     });
     pedido.total_centavos += linha.quantidade * linha.preco_unitario_centavos;
   }
+
   res.json(resposta);
 }));
 
@@ -124,7 +120,7 @@ rotas.get('/pedidos', assincrono(async (req, res) => {
     [status],
   );
   const linhas = await consultar(
-      `SELECT p.*
+    `SELECT p.*
        FROM (SELECT id
                FROM pedidos
               WHERE status = $1
@@ -132,7 +128,7 @@ rotas.get('/pedidos', assincrono(async (req, res) => {
               LIMIT $2 OFFSET $3) s
        JOIN pedidos p ON p.id = s.id
       ORDER BY p.criado_em DESC, p.id DESC`,
-      [status, TAMANHO_PAGINA, (pagina - 1) * TAMANHO_PAGINA],
+    [status, TAMANHO_PAGINA, (pagina - 1) * TAMANHO_PAGINA],
   );
 
   res.json({
