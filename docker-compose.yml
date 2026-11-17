@@ -40,8 +40,8 @@ services:
       DB_PORT: 5432
       DB_USER: loja
       DB_NAME: loja
-      # Tamanho do pool de conexões da API (experimento 17); sem a variável no ambiente, 20.
-      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      # Tamanho do pool de conexões da API; sem a variável no ambiente, 3 (experimento 17).
+      DB_POOL_MAX: ${DB_POOL_MAX:-3}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
