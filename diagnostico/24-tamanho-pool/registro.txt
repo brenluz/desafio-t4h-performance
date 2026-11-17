@@ -1,0 +1,64 @@
+inicio: Mon Nov 16 20:48:41 -03 2026 commit 0e0ab3f
+arquivos fora de resultados: 0
+========== contrato com cada tamanho 20:51:07
+  api: DB_POOL_MAX=20 container 33c209ae52d7
+  com 20: Contrato mantido: as 42 respostas são iguais às gravadas.
+  api: DB_POOL_MAX=2 container d90804f841ea
+  com 2: Contrato mantido: as 42 respostas são iguais às gravadas.
+  api: DB_POOL_MAX=5 container d1f6c513a80e
+  com 5: Contrato mantido: as 42 respostas são iguais às gravadas.
+  api: DB_POOL_MAX=10 container bf666e213fd0
+  com 10: Contrato mantido: as 42 respostas são iguais às gravadas.
+========== bloco 1: 10 2 20 5 20:51:25
+  api: DB_POOL_MAX=10 container bf666e213fd0
+  conexões no banco aos 45 s: 10
+Resultado salvo em resultados/20261116-205126-17-pool-max-10/
+  depois: DB_POOL_MAX=10 container bf666e213fd0
+  api: DB_POOL_MAX=2 container 9cde1c0ad7c7
+  conexões no banco aos 45 s: 2
+Resultado salvo em resultados/20261116-205251-17-pool-max-02/
+  depois: DB_POOL_MAX=2 container 9cde1c0ad7c7
+  api: DB_POOL_MAX=20 container 51e4c2d95364
+  conexões no banco aos 45 s: 20
+Resultado salvo em resultados/20261116-205414-17-pool-max-20/
+  depois: DB_POOL_MAX=20 container 51e4c2d95364
+  api: DB_POOL_MAX=5 container c7bc6d31575c
+  conexões no banco aos 45 s: 5
+Resultado salvo em resultados/20261116-205538-17-pool-max-05/
+  depois: DB_POOL_MAX=5 container c7bc6d31575c
+========== bloco 2: 5 20 2 10 20:56:59
+  api: DB_POOL_MAX=5 container c7bc6d31575c
+  conexões no banco aos 45 s: 5
+Resultado salvo em resultados/20261116-205700-17-pool-max-05/
+  depois: DB_POOL_MAX=5 container c7bc6d31575c
+  api: DB_POOL_MAX=20 container 21b3fbd45566
+  conexões no banco aos 45 s: 20
+Resultado salvo em resultados/20261116-205825-17-pool-max-20/
+  depois: DB_POOL_MAX=20 container 21b3fbd45566
+  api: DB_POOL_MAX=2 container d4b482dd2d93
+  conexões no banco aos 45 s: 2
+Resultado salvo em resultados/20261116-205949-17-pool-max-02/
+  depois: DB_POOL_MAX=2 container d4b482dd2d93
+  api: DB_POOL_MAX=10 container 358621847de7
+  conexões no banco aos 45 s: 10
+Resultado salvo em resultados/20261116-210114-17-pool-max-10/
+  depois: DB_POOL_MAX=10 container 358621847de7
+========== bloco 3: 20 5 10 2 21:02:34
+  api: DB_POOL_MAX=20 container f08275c6470f
+  conexões no banco aos 45 s: 20
+Resultado salvo em resultados/20261116-210238-17-pool-max-20/
+  depois: DB_POOL_MAX=20 container f08275c6470f
+  api: DB_POOL_MAX=5 container 49ddd838d04a
+  conexões no banco aos 45 s: 5
+Resultado salvo em resultados/20261116-210403-17-pool-max-05/
+  depois: DB_POOL_MAX=5 container 49ddd838d04a
+  api: DB_POOL_MAX=10 container 1ef4b02a95b3
+  conexões no banco aos 45 s: 10
+Resultado salvo em resultados/20261116-210527-17-pool-max-10/
+  depois: DB_POOL_MAX=10 container 1ef4b02a95b3
+  api: DB_POOL_MAX=2 container 6dead43c8e46
+  conexões no banco aos 45 s: 2
+Resultado salvo em resultados/20261116-210651-17-pool-max-02/
+  depois: DB_POOL_MAX=2 container 6dead43c8e46
+fim: Mon Nov 16 21:08:11 -03 2026
+api de volta ao padrão: DB_POOL_MAX=20 container 4d26e96db5ee
