@@ -52,6 +52,9 @@ MEDICOES = {
     "14": ["20261111-172915", "20261111-173035", "20261111-173155"],
     "15": ["20261111-181323", "20261111-181443", "20261111-181604"],
     "16": ["20261111-182805", "20261111-182926", "20261111-183047"],
+    # 17: rodada 2 do tamanho do pool (16/11); antes = pool de 20 e depois = pool de 3, nos mesmos blocos.
+    "17-antes": ["20261116-212110", "20261116-212357", "20261116-213343"],
+    "17": ["20261116-211822", "20261116-212645", "20261116-213055"],
 }
 
 APLICADA = "Aplicada e medida"
@@ -108,6 +111,9 @@ EXPERIMENTOS = [
     dict(id="16", rotulo="16-indice-cobrindo-pedidos", mudanca="Índice `pedidos ((criado_em::date)) INCLUDE (criado_em, id, status)`",
          fontes="F20", status=SEM_GANHO, antes="14", antes_texto="exp. 14", rota="vendas-por-dia",
          conclusao="Sem ganho de vazão (faixas sobrepostas) e um índice maior disputando o cache. Desfeito."),
+    dict(id="17", rotulo="17-tamanho-do-pool", mudanca="Pool de conexões da API com `max: 3` no lugar de 20",
+         fontes="F9, F27", status=APLICADA, antes="17-antes", antes_texto="pool de 20, mesma sessão (versão até o 16)", rota=None,
+         conclusao="Ganho, reproduzido em duas rodadas. Menos consultas ao mesmo tempo gastam menos CPU do banco por requisição; as demais esperam na fila do pool. 2 e 3 empatam em vazão, 3 tem mediana menor; com 1, a CPU do banco fica ociosa. A API passa a ser o próximo limite."),
 ]
 
 # Rodada final: (rótulo no nome da pasta, nome curto, experimento original correspondente).
@@ -143,6 +149,12 @@ CUSTO = [
 # Curva de capacidade (16/11): usuários virtuais medidos em cada versão; pastas curva-<versão>-vus-<nnn>.
 CURVA_NIVEIS = [1, 5, 10, 20, 40]
 CURVA_VERSOES = [("original", "Aplicação original"), ("final", "Versão final")]
+
+# Experimento 17, tamanho do pool: (nome da rodada, prefixo do rótulo, tamanhos na ordem da tabela).
+POOL_RODADAS = [
+    ("Rodada 1 (16/11, 20:48–21:08)", "17-pool-max", [20, 10, 5, 2]),
+    ("Rodada 2 (16/11, 21:15–21:42)", "17-pool-r2-max", [20, 3, 2, 1]),
+]
 
 # ---------------------------------------------------------------- leitura das pastas
 
@@ -432,7 +444,44 @@ def curva():
     return "\n".join(linhas), grupos
 
 
-def resumo_readme(pontos, custos, grupos_curva):
+def tabela_pool():
+    linhas = [
+        "| Rodada | `max` | req/s (faixa) | Variação sobre o 20 da mesma rodada | mediana (faixa) | p95 | p99 | CPU, % da cota (banco · API) | CPU do banco por requisição | req/s × tempo médio | Pastas |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    grupos = {}
+    for nome, prefixo, tamanhos in POOL_RODADAS:
+        vinte = grupo(por_rotulo(f"*-{prefixo}-20"))
+        for n in tamanhos:
+            g = grupo(por_rotulo(f"*-{prefixo}-{n:02d}"))
+            grupos[prefixo, n] = g
+            linhas.append(
+                f"| {nome} | {n} | {num(g['reqs'], 2)} ({num(g['reqs_min'], 2)}–{num(g['reqs_max'], 2)}) "
+                f"| {'—' if n == 20 else variacao(vinte['reqs'], g['reqs']) + ', faixas ' + faixas(vinte, g)} "
+                f"| {num(g['mediana'])} ms ({num(g['mediana_min'])}–{num(g['mediana_max'])}) | {num(g['p95'])} ms | {num(g['p99'])} ms "
+                f"| {num(g['banco_cota'])} · {num(g['api_cota'])} | {num(g['banco_cota'] * 10 / g['reqs'], 2)} ms | {num(g['little'], 2)} | {links(g)} |"
+            )
+    original = grupo(por_rotulo("*-17-pool-r2-original"))
+    linhas.append(
+        f"| Rodada 2 | aplicação original (`{original['commit']}`) | {num(original['reqs'], 2)} ({num(original['reqs_min'], 2)}–{num(original['reqs_max'], 2)}) "
+        f"| — | {num(original['mediana'])} ms ({num(original['mediana_min'])}–{num(original['mediana_max'])}) | {num(original['p95'])} ms | {num(original['p99'])} ms "
+        f"| {num(original['banco_cota'])} · {num(original['api_cota'])} | — | {num(original['little'], 2)} | {links(original)} |"
+    )
+    tres = grupos["17-pool-r2-max", 3]
+    linhas += [
+        "",
+        f"- **Versão final (pool de 3) ÷ aplicação original, mesma sessão:** {num(tres['reqs'], 2)} ÷ {num(original['reqs'], 2)} = "
+        f"**{num(tres['reqs'] / original['reqs'], 1)}×** em req/s; p95 de {num(original['p95'])} ms para {num(tres['p95'])} ms.",
+        "",
+        "Com 20 usuários e os limites originais. CPU do banco por requisição = cota usada ÷ req/s. "
+        "Em cada rodada, os tamanhos foram medidos em 3 blocos, cada tamanho uma vez por bloco, em ordens embaralhadas fixas; "
+        "o registro de cada rodada (tamanho e container da API antes e depois de cada medição, conexões abertas no banco) está em "
+        "[`diagnostico/24-tamanho-pool/`](diagnostico/24-tamanho-pool/).",
+    ]
+    return "\n".join(linhas), tres, original
+
+
+def resumo_readme(pontos, custos, grupos_curva, pool_final, pool_original):
     base, final = pontos[1][3], pontos[-1][3]
     original, novo = custos["custo-base-original"], custos["custo-00-limites-originais"]
     quarto = custos["custo-02-um-quarto-cpu"]
@@ -448,7 +497,7 @@ def resumo_readme(pontos, custos, grupos_curva):
         return f"| {nome} | {num(a, casas)}{unidade} | {num(d, casas)}{unidade} | {variacao(a, d)} |"
 
     return "\n".join([
-        "| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão final | Variação |",
+        "| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão até o experimento 16 (rodada final) | Variação |",
         "| --- | --- | --- | --- |",
         linha("Requisições por segundo", base["reqs"], final["reqs"], 2, ""),
         linha("Tempo de resposta, mediana", base["mediana"], final["mediana"]),
@@ -470,6 +519,24 @@ def resumo_readme(pontos, custos, grupos_curva):
         f"{' a '.join(str(n) for n in picos)} usuários (~{num(maximo, 0)} req/s) e perde vazão com mais usuários: "
         f"{num(grupos_curva['final', 20]['reqs'], 0)} req/s com 20 e {num(grupos_curva['final', CURVA_NIVEIS[-1]]['reqs'], 0)} "
         f"com {CURVA_NIVEIS[-1]} ([curva de capacidade](experimentos.md#curva-de-capacidade-1-a-40-usuários)).",
+        "",
+        "**Depois da rodada final: o experimento 17.** A curva mostrou que, com 1 CPU, o banco rende menos quando roda muitas "
+        "consultas ao mesmo tempo. Limitar o pool de conexões da API a 3 (antes, 20) aumentou a vazão com os mesmos 20 usuários "
+        f"e os mesmos limites. Na mesma sessão (16/11), contra a aplicação original:",
+        "",
+        "| Medida (mesma sessão, 16/11) | Aplicação original | Versão final com pool de 3 | Variação |",
+        "| --- | --- | --- | --- |",
+        linha("Requisições por segundo", pool_original["reqs"], pool_final["reqs"], 2, ""),
+        linha("Tempo de resposta, mediana", pool_original["mediana"], pool_final["mediana"]),
+        linha("Tempo de resposta, p95", pool_original["p95"], pool_final["p95"]),
+        linha("Tempo de resposta, p99", pool_original["p99"], pool_final["p99"]),
+        f"| Custo estimado por milhão de requisições (mesmos limites, preços do AWS Fargate) | US$ {dinheiro(custo_hora(next(iter(pool_original['limites']))) / (pool_original['reqs'] * 3600) * 1e6)} "
+        f"| US$ {dinheiro(custo_hora(next(iter(pool_final['limites']))) / (pool_final['reqs'] * 3600) * 1e6)} "
+        f"| {num(pool_final['reqs'] / pool_original['reqs'], 0)}× menor |",
+        "",
+        "O 134,8× da tabela de cima é da cadeia até o experimento 16 (rodada final, 12/11); a curva de capacidade e o estudo de custo "
+        "também são de antes do 17. Detalhes das duas rodadas do 17 no "
+        "[experimentos.md](experimentos.md#experimento-17-tamanho-do-pool-em-duas-rodadas).",
     ])
 
 
@@ -709,6 +776,7 @@ def main():
     final, pontos = rodada_final()
     custo, configs, custos = tabela_custo()
     capacidade, grupos_curva = curva()
+    pool, pool_final, pool_original = tabela_pool()
     verificacao = conferir()
     graficos(pontos, configs, grupos_curva)
 
@@ -717,11 +785,12 @@ def main():
     conteudo = substituir_bloco(conteudo, "rodada-final", final)
     conteudo = substituir_bloco(conteudo, "custo", custo)
     conteudo = substituir_bloco(conteudo, "curva", capacidade)
+    conteudo = substituir_bloco(conteudo, "pool", pool)
     conteudo = substituir_bloco(conteudo, "verificacao", verificacao)
     EXPERIMENTOS_MD.write_text(conteudo, encoding="utf-8")
 
     readme = README_MD.read_text(encoding="utf-8")
-    README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos, grupos_curva), README_MD), encoding="utf-8")
+    README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos, grupos_curva, pool_final, pool_original), README_MD), encoding="utf-8")
     print(verificacao)
     print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)}, {README_MD.relative_to(RAIZ)} e "
           f"{len(list(IMG.glob('*.svg')))} gráficos em {IMG.relative_to(RAIZ)}/")

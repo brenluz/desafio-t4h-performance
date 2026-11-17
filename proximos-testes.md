@@ -30,14 +30,9 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 - **Como testaria:** um script de carga de escrita à parte (fora de `carga/`, que não pode mudar) inserindo pedidos e mudando status, medindo a vazão de escrita com e sem gatilhos.
 - **O que precisaria:** rotas ou scripts de escrita e um critério de carga de escrita realista.
 
-## 4. Pool de conexões pequeno
+## 4. Pool de conexões pequeno (testada: virou o experimento 17)
 
-- **De onde veio:** F9 (HikariCP, "About Pool Sizing"): conexões ativas perto de `(núcleos × 2) + discos`, e "you want a small pool [...] and you want the rest of the application threads blocked on the pool". O experimento 04 usou `max: 20` de propósito, para isolar o custo de abrir conexões. F27 (Schroeder et al., ICDE 2006): com 1 CPU, "the throughput reaches its maximum at an MPL of about 5", e "if this MPL is set too high, then throughput will start to drop" (em bancos com escrita e travas; aqui a API só lê).
-  - **Indício medido depois (curva de capacidade, 16/11, `experimentos.md`):** a versão final faz 392 req/s com 5 e 10 usuários e cai para 350 com 20 (−10,8%) e 287 com 40 (−26,8%), com o banco a ~97–100% da cota em todos esses pontos. A CPU do banco por requisição sobe de 2,53 ms (5 e 10 usuários) para 2,85 ms (20) e 3,36 ms (40). Ou seja, concorrência demais no banco custa CPU, e o pool de 20 deixa passar mais consultas simultâneas do que 1 CPU atende bem.
-- **A ideia:** `max` de 2 a 8 no `Pool` (`api/src/db.js`), para que menos consultas disputem a única CPU do banco ao mesmo tempo; os demais pedidos esperam na API.
-- **O que acredito que ganharia (hipótese):** com 20 usuários, voltar para perto do pico da curva (~390 req/s, +10% sobre os 350 de hoje), com menos troca de contexto e menos consultas paradas no meio quando a cota de CPU acaba. Pode também piorar, se a fila no pool ficar longa ou se um pool pequeno deixar a CPU ociosa enquanto as conexões esperam a rede e o Node.
-- **Como testaria:** um experimento por valor (2, 4, 8), 3 medições cada, contra a versão final com `max: 20`, intercalados (A-B-B-A) na mesma sessão; depois, a curva de capacidade (`diagnostico/23-curva-capacidade/curva.sh`) com o melhor valor, para ver se a queda depois de 10 usuários some.
-- **O que precisaria:** nada além do que existe.
+Testada em 16/11 e aplicada: pool de 3 conexões, +33,8% de req/s sobre o de 20 na mesma sessão. Resultados no `experimentos.md` (seção do experimento 17) e o raciocínio no diário. Os testes que sobraram dela estão nas fichas 9 e 10.
 
 ## 5. Índice GiST em vez de GIN para a busca por trigramas
 
@@ -69,6 +64,22 @@ Ideias que apareceram na pesquisa ou nos diagnósticos e **não foram testadas**
 - **A ideia:** em vez de `pagina=N`, o cliente envia o último `(criado_em, id)` visto.
 - **Por que não foi feito:** **quebra o contrato** (a API expõe `pagina` numérica de acesso aleatório). O experimento 06 (late row lookup) foi a alternativa compatível.
 - **Como testaria:** só numa versão nova da API, com o contrato renegociado.
+
+## 9. A API como próximo limite
+
+- **De onde veio:** experimento 17: com o pool de 3, a API usa 79% da cota de 0,5 CPU (com o de 20, 61%). O Diagnóstico 04 (`diagnostico/11-diagnostico-04/perfil-api.txt`) mostrou a CPU da API indo para a leitura das linhas que vêm do banco (`parseDate`, `parseDataRowMessage`) e para o log.
+- **A ideia:** um perfil novo da API com o pool de 3; candidatos já conhecidos: a ficha 6 (log sem o corpo da resposta) e menos colunas lidas por consulta (`SELECT *`, P11), sempre com o contrato igual.
+- **O que acredito que ganharia (hipótese):** enquanto o banco estiver no teto, pouco ou nada em vazão; o ganho apareceria em CPU da API (custo) e como folga quando o banco deixar de ser o limite.
+- **Como testaria:** o mesmo perfil do Diagnóstico 04, depois uma mudança por vez com 3 medições contra a versão final.
+- **O que precisaria:** nada além do que existe.
+
+## 10. Curva de capacidade e latência de rede com o pool de 3
+
+- **De onde veio:** experimento 17. A escolha de 3 em vez de 2 se apoia num argumento não medido: com mais tempo de rede entre API e banco, um pool pequeno deixa a CPU do banco ociosa mais cedo (como aconteceu com 1). E a curva de capacidade foi medida com o pool de 20.
+- **A ideia:** (1) a curva da versão final com o pool de 3, de 1 a 40 usuários; (2) os tamanhos 2, 3 e 5 com atraso artificial na rede entre a API e o banco (`tc qdisc ... netem delay`, que exige a permissão `NET_ADMIN` no container da API).
+- **O que acredito que ganharia (hipótese):** (1) a queda depois de 10 usuários some ou diminui muito, porque o banco nunca vê mais de 3 consultas; (2) com alguns milissegundos de atraso, 2 perde para 3, e 3 perde para 5.
+- **Como testaria:** (1) `diagnostico/23-curva-capacidade/curva.sh` só com a versão final; (2) blocos embaralhados como no 17, para cada atraso (0, 1 e 5 ms).
+- **O que precisaria:** (2) uma mudança no `docker-compose.yml` só para o teste (capacidade `NET_ADMIN`), fora da versão final.
 
 ---
 

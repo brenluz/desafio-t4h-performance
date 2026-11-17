@@ -16,12 +16,12 @@ Seção acrescentada com a solução do desafio. Daqui para baixo, a partir de [
 - relatórios recalculados a cada chamada: `top-produtos` sobre todos os itens, o `count(*)` do total por status e a agregação de vendas por dia feita no Node;
 - configuração do PostgreSQL que não combina com o limite de 1 CPU (consultas paralelas dividindo a mesma cota) e um cache menor que a tabela mais usada.
 
-**O que mudou.** 14 mudanças aplicadas e medidas, cada uma no seu commit, e 2 aplicadas sem ganho e desfeitas. A lista, com antes e depois de cada uma, está em [`experimentos.md`](experimentos.md). O que as rotas respondem continua igual: o verificador de contrato passou em todas as medições.
+**O que mudou.** 15 mudanças aplicadas e medidas, cada uma no seu commit, e 2 aplicadas sem ganho e desfeitas. A lista, com antes e depois de cada uma, está em [`experimentos.md`](experimentos.md). O que as rotas respondem continua igual: o verificador de contrato passou em todas as medições.
 
 **Resultado, com os mesmos limites de CPU e memória do enunciado:**
 
 <!-- gerado:resumo -->
-| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão final | Variação |
+| Medida (limites originais: banco 1 CPU · 512 MB, API 0,5 CPU · 256 MB) | Aplicação original | Versão até o experimento 16 (rodada final) | Variação |
 | --- | --- | --- | --- |
 | Requisições por segundo | 2,61 | 351,81 | 134,8× |
 | Tempo de resposta, mediana | 1.299,0 ms | 18,5 ms | −98,6% |
@@ -32,6 +32,18 @@ Seção acrescentada com a solução do desafio. Daqui para baixo, a partir de [
 Tempos e req/s: mediana de 3 medições de cada versão na rodada final (12/11), na mesma sessão ([tabela completa](experimentos.md#rodada-final-a-cadeia-inteira-numa-sessão-só)). Com **um quarto da CPU** (banco 0,25, API 0,125), a versão final ainda fez 68,44 req/s, 29× a aplicação original com toda a CPU, com custo por hora −71,1% ([estudo de custo](experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).
 
 **O ganho depende da carga.** Os 134,8× acima são com 20 usuários, como todas as medições do desafio. Na curva de capacidade (16/11, outra sessão), com 1 a 40 usuários, as req/s da versão final ficaram entre 87× (1 usuário) e 171× (10 usuários) as da original (144× com 20). A original já satura com 1 usuário. A versão final chega ao pico com 5 a 10 usuários (~392 req/s) e perde vazão com mais usuários: 350 req/s com 20 e 287 com 40 ([curva de capacidade](experimentos.md#curva-de-capacidade-1-a-40-usuários)).
+
+**Depois da rodada final: o experimento 17.** A curva mostrou que, com 1 CPU, o banco rende menos quando roda muitas consultas ao mesmo tempo. Limitar o pool de conexões da API a 3 (antes, 20) aumentou a vazão com os mesmos 20 usuários e os mesmos limites. Na mesma sessão (16/11), contra a aplicação original:
+
+| Medida (mesma sessão, 16/11) | Aplicação original | Versão final com pool de 3 | Variação |
+| --- | --- | --- | --- |
+| Requisições por segundo | 2,56 | 473,74 | 185,1× |
+| Tempo de resposta, mediana | 1.304,2 ms | 25,2 ms | −98,1% |
+| Tempo de resposta, p95 | 25.752,8 ms | 91,6 ms | −99,6% |
+| Tempo de resposta, p99 | 29.557,9 ms | 103,6 ms | −99,6% |
+| Custo estimado por milhão de requisições (mesmos limites, preços do AWS Fargate) | US$ 6,95 | US$ 0,038 | 185× menor |
+
+O 134,8× da tabela de cima é da cadeia até o experimento 16 (rodada final, 12/11); a curva de capacidade e o estudo de custo também são de antes do 17. Detalhes das duas rodadas do 17 no [experimentos.md](experimentos.md#experimento-17-tamanho-do-pool-em-duas-rodadas).
 <!-- /gerado:resumo -->
 
 **Onde está cada coisa:**
