@@ -1,0 +1,17 @@
+Medição: 17-pool-r2-original
+Carga: 20 usuários virtuais por 60s
+
+Requisições:        183
+Requisições/s:      2.57
+Tempo de resposta:  mediana 1395.5 ms | p95 25086.6 ms | p99 28580.7 ms
+Erros:              0.55%
+
+Por rota:
+rota                  req       mediana       p95           p99           erros   
+cliente               50        497.9 ms      801.4 ms      1201.6 ms     0.0%    
+cliente-por-email     33        1300.0 ms     2197.9 ms     2540.5 ms     0.0%    
+pedidos-do-cliente    37        21999.1 ms    27842.8 ms    28802.6 ms    0.0%    
+pedidos-por-status    22        10736.7 ms    14567.7 ms    21704.0 ms    0.0%    
+busca-produtos        28        800.8 ms      2129.8 ms     2854.1 ms     0.0%    
+vendas-por-dia        11        9114.3 ms     12666.6 ms    13186.4 ms    0.0%    
+top-produtos          2         36701.4 ms    57668.6 ms    59532.3 ms    50.0%   

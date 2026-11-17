@@ -1761,6 +1761,39 @@ Decisão do Breno: uma rodada a mais antes de fazer de 2 o padrão.
   - Original: ~2,3–2,6 req/s, como nas outras sessões; razão final (`max` 2) ÷ original entre ~170× e ~210×.
 - **O que derrubaria:** 2 sem faixa separada da do 20 nesta sessão (o resultado da rodada 1 seria variação ou efeito de sessão); 1 ou 3 com faixa separada acima da de 2 (o padrão escolhido seria outro).
 
+#### Rodada 2: resultados (16/11, 21:15–21:42, uma sessão)
+
+Rodada pelo Breno com `rodada-2.sh` (cópia em `~/claude-tmp/`) no commit `670b42c`; registro em `diagnostico/24-tamanho-pool/registro-rodada-2.txt`. As 15 pastas com `arquivos alterados sem commit: 0` e "Contrato mantido"; contrato conferido com cada tamanho e com a original antes das medições; conexões abertas no banco aos 45 s iguais ao `max` em todas as 12 medições da versão final.
+
+| `max` | req/s (faixa) | mediana geral (faixa) | p95 | p99 | CPU do banco | CPU do banco por requisição | CPU da API |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 20 (o antes) | 354,05 (328,19–358,81) | 18,5 ms (17,4–63,5) | 190,8 ms | 298,8 ms | 100,2% | 2,83 ms | 60,8% |
+| 3 | 473,74 (455,92–497,95) | 25,2 ms (24,1–26,8) | 91,6 ms | 103,6 ms | 100,0% | 2,11 ms | 79,2% |
+| 2 | 482,54 (430,55–495,70) | 33,2 ms (30,9–39,5) | 88,1 ms | 105,9 ms | 99,4% | 2,06 ms | 82,4% |
+| 1 | 416,33 (413,88–447,18) | 43,9 ms (42,1–44,1) | 95,0 ms | 123,1 ms | **82,0%** | 1,97 ms | 71,6% |
+| Aplicação original (`1b5bd26`) | 2,56 (2,40–2,57) | 1.304,2 ms | 25.752,8 ms | 29.557,9 ms | 99,4% | — | 13,2% |
+
+req/s × tempo médio: 19,93–19,94 nos quatro tamanhos; 18,71 na original (requisições longas nas bordas da janela, F26 §2.2). Uma medição da original teve 0,55% de erros: 1 das 2 chamadas de `top-produtos` passou do limite de 60 s.
+
+**Previsões × resultado:**
+
+| Previsão | Resultado |
+| --- | --- |
+| 2 contra 20: o ganho se repete, faixas separadas | **confirmada**: +36,3% (rodada 1: +39,3%); faixas 430,55–495,70 e 328,19–358,81 |
+| 3 perto de 2, acima do que 5 e 10 fizeram na rodada 1 | **confirmada**: 473,74 contra 482,54, faixas sobrepostas; acima de 384,30 e 398,87 |
+| 1 abaixo de 2, banco abaixo do teto (< 95%), CPU da API abaixo da de 2 | **confirmada**: 416,33 (−13,7% contra 2, faixas encostando: 447,18 contra 430,55); banco a 82,0%; API a 71,6% |
+| Original ~2,3–2,6 req/s; final ÷ original entre ~170× e ~210× | **confirmada**: 2,56 req/s; 188,5× com `max` 2 e 185,1× com `max` 3 |
+| Derrubaria: 2 sem faixa separada da do 20, ou 1/3 com faixa separada acima da de 2 | nenhuma das duas |
+
+**O que as duas rodadas mostram juntas:**
+
+- **Com 1 conexão a CPU do banco fica ociosa** (82%): enquanto a resposta de uma consulta volta pela rede e a API manda a próxima, o banco não tem o que fazer. A partir de 2 o banco fica no teto. É o efeito que eu esperava para 2 na rodada 1; ele existe, só que com 1.
+- **Entre 2 e 3 a vazão empata** (faixas sobrepostas), mas **com 3 a mediana geral é 24% menor** (25,2 contra 33,2 ms, faixas separadas: 24,1–26,8 contra 30,9–39,5) e a das rotas baratas fica perto da do pool de 20 (`cliente` 13,6 ms com 3, 20,4 com 2, 11,0 com 20): com uma conexão a mais, as consultas rápidas esperam menos atrás das caras. p95 e p99 empatam.
+- **CPU do banco por requisição** cai quase sem parar conforme o pool diminui (2,83 → 2,11 → 2,06 → 1,97 ms): a concorrência no banco custa CPU, como a curva sugeria.
+- **A API vira o próximo limite:** 79–82% da cota com 2 e 3 conexões.
+
+**Escolha do padrão: pendente (decisão do Breno).** Os números não separam 2 e 3 em vazão; 3 tem mediana menor com a mesma cauda. Argumento a favor de 3, **não medido aqui**: com mais tempo de rede entre a API e o banco (em produção, máquinas diferentes, em vez da rede interna do Docker), cada conexão passa mais tempo esperando a resposta, e um pool menor deixa a CPU do banco ociosa mais cedo, como aconteceu com 1. Argumento a favor de 2: mais medições (6, em duas sessões, contra 3).
+
 ## Estudo de custo: a versão final com menos recursos
 
 > Feito pelo Claude Code a pedido do Breno, como parte do plano "ir além do enunciado". Não é um experimento de otimização: é a outra metade da missão ("mais rápida **e mais barata** de rodar"). O enunciado define o custo como os limites dos containers (API 0,5 CPU / 256 MB; banco 1 CPU / 512 MB) e diz que "é com esses limites que você compara o antes e o depois". Até aqui só mostrei "mais rápida com os mesmos limites"; este estudo mede quanto recurso a versão final realmente precisa.
