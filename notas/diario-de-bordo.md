@@ -1728,6 +1728,39 @@ Por rota (mediana das medianas):
 - **Depois da medição (a decidir com o Breno):** se um tamanho ganhar com faixa separada, ele vira o padrão num commit próprio, com 3 medições de confirmação; e a curva só da versão final com o tamanho novo mostraria se a queda depois de 10 usuários some.
 - **Custo esperado:** nenhum recurso novo; a espera passa do banco para a fila do pool na API.
 
+#### Rodada 1 (16/11, 20:48–21:08, uma sessão)
+
+Rodada pelo Breno com `diagnostico/24-tamanho-pool/pool.sh` no commit `0e0ab3f`; registro em `diagnostico/24-tamanho-pool/registro.txt`, resultados no commit `7262cd5`. As 12 pastas com `arquivos alterados sem commit: 0` e "Contrato mantido"; o contrato também passou com cada tamanho antes das medições. O registro confirma o tamanho certo antes e depois de cada medição e **conexões abertas no banco aos 45 s iguais ao `max`** em todas (2, 5, 10, 20).
+
+| `max` | req/s (faixa) | p95 | p99 | CPU do banco | CPU do banco por requisição | CPU da API (% da cota) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 20 (atual, o antes) | 347,16 (322,05–355,20) | 189,5 ms | 304,8 ms | 98,7% | 2,84 ms | 57,8% |
+| 10 | 398,87 (375,07–404,00) | 105,2 ms | 196,7 ms | 99,0% | 2,48 ms | 67,6% |
+| 5 | 384,30 (353,00–429,71) | 104,1 ms | 182,1 ms | 99,4% | 2,59 ms | 75,4% |
+| **2** | **483,54 (471,17–513,29)** | **87,8 ms** | **107,2 ms** | 99,5% | **2,06 ms** | **82,2%** |
+
+req/s × tempo médio: 19,92–19,93 nos quatro (ciclo fechado com 20 usuários, como suposto).
+
+- **Hipótese principal: certa, e com folga.** Com a API e o k6 ainda com 20 requisições simultâneas, limitar as consultas simultâneas no banco aumentou a vazão: a queda da curva de capacidade vem da concorrência dentro do banco. Com `max` 2: **+39,3%** de req/s (faixas separadas), p95 −53,7% e p99 −64,8%; a CPU do banco por requisição caiu 27,6% (2,84 → 2,06 ms) com o banco ainda no teto. Tempo médio pela lei de Little: 57,4 → 41,2 ms.
+- **Previsão para `max` 2: errada.** Eu previa que 2 conexões deixariam a CPU do banco ociosa (banco < 95%) e fariam menos que 5 e 10; o banco ficou a 99,5% e 2 foi o melhor tamanho. A regra de F9 (2–3 conexões para 1 núcleo) acertou; o "cerca de 5" de F27 (outros bancos, outra carga, com escrita) não se repetiu aqui.
+- **Previsão para 5 e 10: meio certa.** 10 ganhou do 20 com faixas separadas (+14,9%); 5 ficou com a mediana acima (+10,7%), mas com a faixa mais larga das quatro, encostando na do 20 (353,00 contra 355,20). Entre 5 e 10 não dá para dizer qual é melhor.
+- **Bloqueio na fila do pool (F27 §1): apareceu, como previsto, mas a cauda melhorou muito.** Com `max` 2 as rotas baratas esperam atrás das caras: mediana de `cliente` 11,3 → 20,7 ms, de `pedidos-do-cliente` 25,5 → 57,4 ms. Ao mesmo tempo o p95 de todas as rotas caiu (o de `vendas-por-dia`, 391,3 → 89,7 ms; `busca-produtos` teve a mediana de 53,0 → 22,7 ms).
+- **O gargalo começa a mudar de lugar:** a CPU da API sobe de 57,8% para 82,2% da cota (0,5 CPU) com `max` 2. Com mais vazão, a próxima parede é a API.
+- **Variação:** as faixas desta sessão são mais largas que as da curva (ex.: 5 com 353–430). Os blocos embaralhados impedem que isso vire efeito de ordem, mas é mais um motivo para a rodada 2.
+
+#### Rodada 2: hipótese (escrita antes de medir)
+
+Decisão do Breno: uma rodada a mais antes de fazer de 2 o padrão.
+
+- **Por quê:** (1) 2 foi o menor tamanho testado e o melhor; 1 e 3 dizem se o melhor está mesmo em 2. (2) Repetir 2 contra 20 numa sessão nova mostra se o ganho se reproduz. (3) A comparação com a aplicação original na mesma sessão dá a razão final ÷ original para o README com a versão que inclui o 17.
+- **Desenho:** mesmo commit e mesmo método da rodada 1. Tamanhos 1, 2, 3 e 20, 3 medições de cada, em 3 blocos (3, 1, 20, 2 / 20, 2, 3, 1 / 1, 3, 2, 20); rótulos `17-pool-r2-max-<nn>`. Depois, a aplicação original (`1b5bd26`) com preparo próprio, 3 medições (`17-pool-r2-original`). Script `diagnostico/24-tamanho-pool/rodada-2.sh`, rodado de uma cópia fora do repositório (troca de commit).
+- **Previsões:**
+  - 2 contra 20: o ganho se repete, com faixas separadas (2 em ~470–510 req/s, 20 em ~330–355).
+  - 3: perto de 2 (dentro da variação) e acima do que 5 e 10 fizeram na rodada 1.
+  - 1: abaixo de 2. Com uma conexão só, cada consulta espera a anterior terminar **e** voltar pela rede; o banco deve ficar abaixo do teto (< 95%) e a CPU da API, abaixo da de 2. (É a mesma lógica que errou para 2 na rodada 1; se errar de novo, o tempo de rede por consulta é menor do que eu supunha.)
+  - Original: ~2,3–2,6 req/s, como nas outras sessões; razão final (`max` 2) ÷ original entre ~170× e ~210×.
+- **O que derrubaria:** 2 sem faixa separada da do 20 nesta sessão (o resultado da rodada 1 seria variação ou efeito de sessão); 1 ou 3 com faixa separada acima da de 2 (o padrão escolhido seria outro).
+
 ## Estudo de custo: a versão final com menos recursos
 
 > Feito pelo Claude Code a pedido do Breno, como parte do plano "ir além do enunciado". Não é um experimento de otimização: é a outra metade da missão ("mais rápida **e mais barata** de rodar"). O enunciado define o custo como os limites dos containers (API 0,5 CPU / 256 MB; banco 1 CPU / 512 MB) e diz que "é com esses limites que você compara o antes e o depois". Até aqui só mostrei "mais rápida com os mesmos limites"; este estudo mede quanto recurso a versão final realmente precisa.
