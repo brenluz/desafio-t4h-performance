@@ -3,15 +3,15 @@
 ## 1. Resumo
 
 A API de uma loja ficava lenta com 20 usuários simultâneos: o banco operava no teto da CPU e pelo menos 5% das requisições passavam de 25 segundos.
-As causas eram consultas sem índice lendo tabelas inteiras, relatórios recalculados a cada chamada e uma conexão nova por consulta.
-Das 17 mudanças testadas, as 15 que deram ganho foram mantidas.
+As causas eram consultas sem índice lendo tabelas inteiras, relatórios recalculados a cada chamada e conexões mal dimensionadas para um banco de 1 CPU.
+Das 17 mudanças testadas, 15 foram mantidas.
 Com os mesmos limites de CPU e memória, sem serviço novo e com as mesmas respostas, a API passou de 2,56 para 473,74 requisições por segundo (185,1×).
 
 ## 2. Contexto e diagnóstico
 
 A API é escrita em Node.js e usa PostgreSQL.
 O teste de carga simula 20 usuários, cada um pedindo a próxima requisição assim que recebe a resposta.
-Na versão original, a API atendia 2,56 requisições por segundo, com p95 de 25.752,8 ms: 5% das requisições passavam disso.
+Na versão original (medição de 16/11), a API atendia 2,56 requisições por segundo, com p95 de 25.752,8 ms: 5% das requisições passavam disso.
 O banco usava 99,4% do limite de CPU do seu container e a API, 13,2% do dela (medições [213731](../resultados/20261116-213731-17-pool-r2-original/resumo.txt), [213916](../resultados/20261116-213916-17-pool-r2-original/resumo.txt) e [214058](../resultados/20261116-214058-17-pool-r2-original/resumo.txt)): o gargalo era o banco.
 Em preços do AWS Fargate, isso dá US$ 6,95 por milhão de requisições [[1]](https://aws.amazon.com/fargate/pricing/).
 
@@ -19,7 +19,7 @@ Para achar a causa, o `EXPLAIN ANALYZE` (mostra como o banco executa uma consult
 Só existiam os índices das chaves primárias.
 Um índice leva direto às linhas procuradas, como o índice remissivo de um livro.
 Sem eles, buscar os itens de um pedido lia 1,5 milhão de linhas (252 ms, sem carga).
-Depois de cada mudança, o ranking das consultas mais pesadas foi refeito sob carga, com o `pg_stat_statements` [[2]](https://www.postgresql.org/docs/16/pgstatstatements.html).
+Ao longo do trabalho, o ranking das consultas mais pesadas foi refeito cinco vezes sob carga, com o `pg_stat_statements` [[2]](https://www.postgresql.org/docs/16/pgstatstatements.html).
 
 Hipótese de causa:
 
@@ -39,7 +39,7 @@ Há também índices sobre expressões, como `lower(email)` [[5]](https://www.po
 
 ### Menos idas ao banco e menos trabalho repetido
 
-Para o N+1, a solução mais citada é agrupar as buscas, como faz a biblioteca DataLoader [[8]](https://github.com/graphql/dataloader#batching); o guia do Rails mostra o mesmo exemplo caindo para 2 consultas [[9]](https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem).
+Para o N+1, a solução mais citada é agrupar as buscas, como faz a biblioteca DataLoader [[8]](https://github.com/graphql/dataloader#batching); o guia do Rails mostra um exemplo que cai para 2 consultas [[9]](https://guides.rubyonrails.org/active_record_querying.html#n-1-queries-problem).
 A Shopify relata ter criado uma biblioteca de agrupamento para reduzir as consultas da sua API, sem publicar números [[10]](https://shopify.engineering/solving-the-n-1-problem-for-graphql-through-batching).
 Um estudo sobre aplicações com ORM (camada que traduz objetos em SQL) encontrou esse padrão; corrigir esse e outros anti-padrões reduziu o tempo de resposta em até 98% [[11]](https://ece.uwaterloo.ca/~wshang/pubs/peter_icse2014.pdf).
 Para relatórios, a visão materializada guarda o resultado pronto: a leitura fica muito mais rápida, mas os dados podem estar desatualizados [[12]](https://www.postgresql.org/docs/16/rules-materializedviews.html).
@@ -50,7 +50,7 @@ No PostgreSQL, cada conexão cria um processo novo no servidor [[13]](https://ww
 Um pool de conexões mantém algumas abertas e as reaproveita.
 A wiki do HikariCP, um pool para Java, recomenda um pool pequeno, perto do dobro dos núcleos de CPU [[15]](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing).
 Um estudo acadêmico mostrou que limitar as transações simultâneas no banco evita a queda de vazão; com 1 CPU, o pico ficou perto de 5 (bancos DB2 e Shore, com escrita) [[16]](https://www.cs.cmu.edu/~harchol/Papers/icde06.pdf).
-Num teste da Percona, 14 conexões num servidor de 56 CPUs renderam quase tanto quanto pools maiores [[17]](https://www.percona.com/blog/scaling-postgresql-with-pgbouncer-you-may-need-a-connection-pooler-sooner-than-you-expect/).
+Num teste da Percona com o PgBouncer, um pool de 14 conexões num servidor de 56 CPUs rendeu quase tanto quanto um de 56 [[17]](https://www.percona.com/blog/scaling-postgresql-with-pgbouncer-you-may-need-a-connection-pooler-sooner-than-you-expect/).
 
 ### Como medir
 
@@ -83,7 +83,7 @@ O argumento vem do diagnóstico: o banco gastava a CPU com trabalho que um índi
 Corrigir isso não exige infraestrutura nova nem muda as respostas da API.
 O estudo de custo reforça a escolha: com um quarto da CPU, a versão até o experimento 16 fez 68,44 requisições por segundo, 29 vezes a aplicação original com toda a CPU, na mesma sessão ([estudo de custo](../experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).
 Leitura deste trabalho: faltava eficiência, não máquina.
-O cache de respostas foi descartado por ser um serviço novo com pouco acerto nesta carga; o PgBouncer, por só compensar com várias instâncias da API, e aqui há uma; mais CPU, por aumentar o custo sem mexer na causa.
+O cache de respostas foi descartado por ser um serviço novo com pouco acerto nesta carga; o PgBouncer, porque a API é um processo só e já reaproveita as conexões (leitura deste trabalho); mais CPU, por aumentar o custo sem mexer na causa.
 
 ## 6. Experimento e resultado
 
@@ -116,10 +116,10 @@ Por isso, a cadeia foi refeita numa sessão só (12/11): a versão anterior ao e
 Duas mudanças foram desfeitas: o cache de 192 MB (15) rendeu menos que o de 256 MB, e o índice que cobre `pedidos` (16) não mudou a vazão.
 No experimento 03, a rota corrigida acelerou, mas o p95 geral piorou: na carga de ciclo fechado, os usuários liberados foram esperar nos relatórios lentos.
 
-No experimento 17, o melhor pool teve 3 conexões, perto da fórmula do HikariCP para 1 núcleo [[15]](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing) e abaixo do pico perto de 5 do estudo [[16]](https://www.cs.cmu.edu/~harchol/Papers/icde06.pdf), com a CPU do banco por requisição caindo de 2,83 para 2,11 ms ([experimento 17](../experimentos.md#experimento-17-tamanho-do-pool-em-duas-rodadas)).
+No experimento 17, o pool escolhido teve 3 conexões (2 e 3 empataram em vazão; 3 teve mediana menor), perto da fórmula do HikariCP para 1 núcleo [[15]](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing) e abaixo do pico perto de 5 do estudo [[16]](https://www.cs.cmu.edu/~harchol/Papers/icde06.pdf), com a CPU do banco por requisição caindo de 2,83 para 2,11 ms ([experimento 17](../experimentos.md#experimento-17-tamanho-do-pool-em-duas-rodadas)).
 Leitura deste trabalho: mesmo sem travas, consultas demais ao mesmo tempo disputam a única CPU.
 Contra a original, na mesma sessão (16/11), as requisições por segundo subiram 185,1 vezes e o custo por milhão caiu de US$ 6,95 para 0,038.
-O segundo gráfico mostra que o ganho depende do número de usuários.
+O segundo gráfico, medido antes do 17, mostra a vazão caindo acima de 10 usuários com o banco no teto; foi essa queda que levou ao experimento 17.
 
 ![Requisições por segundo a cada mudança, da aplicação original à versão anterior ao experimento 17, medidas numa sessão só, em escala logarítmica](img/vazao-por-mudanca.svg)
 
@@ -160,6 +160,6 @@ Esses testes, e a API como próximo limite (79,2% do seu limite de CPU no experi
 
 ## 9. Uso de IA
 
-O Claude Code (Anthropic) foi usado em todo o trabalho: escreveu os scripts de diagnóstico e de medição em lote, implementou a pedido os experimentos 07 a 16, planejou o 17, escreveu o `analise/gerar.py` e redigiu a maior parte deste artigo, com revisão do autor.
-A verificação: o verificador de contrato passou nas 186 medições, todo número das tabelas é gerado das pastas de `resultados/`, e as fontes foram conferidas no navegador, exceto [10] e [17], lidas só por leitura automática.
+O Claude Code (Anthropic) foi usado em todo o trabalho: escreveu os scripts de diagnóstico e de medição em lote, redigiu hipóteses e sugeriu código nos experimentos 01 a 06, implementou a pedido os experimentos 07 a 16, planejou o 17, escreveu o `analise/gerar.py` e redigiu a maior parte deste artigo, com revisão do autor.
+A verificação: o verificador de contrato passou em todas as medições, todo número das tabelas é gerado das pastas de `resultados/`, e todas as fontes citadas foram abertas e conferidas pelo autor no navegador.
 A lista completa, com o que foi verificado em cada passo, está no [diário](../notas/diario-de-bordo.md#uso-de-ia).
