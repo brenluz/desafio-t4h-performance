@@ -2,8 +2,8 @@
 
 ## 1. Resumo
 
-A API de uma loja ficava lenta com 20 usuários simultâneos: o banco operava no teto da CPU e pelo menos 5% das requisições passavam de 25 segundos.
-As causas eram consultas sem índice lendo tabelas inteiras, relatórios recalculados a cada chamada e conexões mal dimensionadas para um banco de 1 CPU.
+A API de uma loja ficava lenta com 20 usuários simultâneos: o banco operava no teto da CPU e 5% das requisições passavam de 25 segundos.
+As causas eram consultas sem índice lendo tabelas inteiras, relatórios recalculados a cada chamada e conexões demais para um banco de 1 CPU.
 Das 17 mudanças testadas, 15 foram mantidas.
 Com os mesmos limites de CPU e memória, sem serviço novo e com as mesmas respostas, a API passou de 2,56 para 473,74 requisições por segundo (185,1×).
 
@@ -71,8 +71,6 @@ A tabela compara cinco caminhos para o mesmo problema: o banco no teto de CPU.
 Os números de desempenho vêm de pré-testes feitos sem carga, antes de cada mudança; "esperado" marca o que não foi medido, e o resultado sob carga está na seção 6.
 Dois critérios eliminaram opções antes do custo: as respostas da API não podiam mudar, e nenhuma mudança podia ganhar só porque a carga de teste é previsível.
 Por isso o cache na busca foi descartado: a carga usa 12 termos fixos, e o cache acertaria quase sempre, o que não representa usuários reais.
-Mais CPU e memória não foi testado na aplicação original.
-Leitura deste trabalho: o recurso extra custaria mais por hora e deixaria a causa no lugar.
 A comparação completa, com as variantes de cada problema (índice GiST, busca textual, paginação por cursor, entre outras), está no [diário](../notas/diario-de-bordo.md#alternativas).
 
 ## 5. Solução escolhida e por quê
@@ -80,7 +78,6 @@ A comparação completa, com as variantes de cada problema (índice GiST, busca 
 A solução escolhida foi atacar a causa no banco e nas consultas, sem serviço novo: índices, consultas reescritas, os dois relatórios pré-calculados em visões materializadas e um pool de conexões pequeno.
 As mudanças foram aplicadas uma por vez, guiadas pelo ranking de tempo do banco, e cada uma foi medida antes da seguinte, para que cada ganho tivesse uma causa conhecida.
 O argumento vem do diagnóstico: o banco gastava a CPU com trabalho que um índice ou uma reescrita elimina, como ler 1,5 milhão de linhas para achar os itens de um pedido.
-Corrigir isso não exige infraestrutura nova nem muda as respostas da API.
 O estudo de custo reforça a escolha: com um quarto da CPU, a versão até o experimento 16 fez 68,44 requisições por segundo, 29 vezes a aplicação original com toda a CPU, na mesma sessão ([estudo de custo](../experimentos.md#estudo-de-custo-quanto-recurso-a-versão-final-precisa)).
 Leitura deste trabalho: faltava eficiência, não máquina.
 O cache de respostas foi descartado por ser um serviço novo com pouco acerto nesta carga; o PgBouncer, porque a API é um processo só e já reaproveita as conexões (leitura deste trabalho); mais CPU, por aumentar o custo sem mexer na causa.
