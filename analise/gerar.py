@@ -22,6 +22,7 @@ RESULTADOS = RAIZ / "resultados"
 IMG = RAIZ / "artigo" / "img"
 EXPERIMENTOS_MD = RAIZ / "experimentos.md"
 README_MD = RAIZ / "README.md"
+ARTIGO_MD = RAIZ / "artigo" / "artigo.md"
 
 # AWS Fargate, Linux/x86, US East, conferido em 11/11/2026 (F22). Serve para comparar configurações, não é orçamento.
 PRECO_VCPU_HORA = 0.04048
@@ -274,8 +275,8 @@ def faixas(antes, depois):
     return "separadas" if separadas else "sobrepostas"
 
 
-def links(g):
-    return " ".join(f"[{m['pasta'][9:15]}](resultados/{m['pasta']}/resumo.txt)" for m in g["medicoes"])
+def links(g, prefixo=""):
+    return " ".join(f"[{m['pasta'][9:15]}]({prefixo}resultados/{m['pasta']}/resumo.txt)" for m in g["medicoes"])
 
 
 def mb(bytes_):
@@ -320,6 +321,50 @@ def tabela_experimentos():
             f"{num(a['banco_mem'])} → {num(d['banco_mem'])} · {num(a['api_mem'])} → {num(d['api_mem'])}",
             faixas(a, d),
             f"antes: {links(a)}<br>depois: {links(d)}",
+            e["conclusao"] + " |",
+        ]))
+    return "\n".join(linhas)
+
+
+# Hipótese de cada experimento, resumida da que o diário registrou antes de medir. Texto, sem números medidos.
+HIPOTESES = {
+    "01": "Sem índice, cada busca de pedidos e de itens lê as tabelas inteiras.",
+    "02": "A página de `/pedidos` ordena em disco a cada chamada; o índice entrega as linhas já na ordem.",
+    "03": "A rota vai ao banco uma vez por pedido e por item; uma consulta com `JOIN` reduz isso a duas idas.",
+    "04": "Uma conexão nova por consulta gasta CPU do banco criando processo e fazendo o handshake.",
+    "05": "O filtro por dia lê todos os pedidos a cada chamada; um índice na expressão `criado_em::date` evita isso.",
+    "06": "O `OFFSET` busca na tabela as linhas que vai descartar; pegar só os `id` pelo índice evita isso.",
+    "07": "`top-produtos` agrega todos os itens a cada chamada; um resumo pré-calculado elimina esse trabalho.",
+    "08": "A busca por `lower(email)` lê todos os clientes; um índice na expressão evita isso.",
+    "09": "A API gasta CPU analisando milhares de linhas que o SQL pode devolver já agregadas.",
+    "10": "A busca por trecho compara todos os nomes; um índice de trigramas visita só os candidatos.",
+    "11": "O total de `/pedidos` conta todos os pedidos do status a cada página; uma contagem pré-calculada evita isso.",
+    "12": "Com 1 CPU, os processos paralelos de uma consulta só dividem a mesma cota e pagam a coordenação.",
+    "13": "`vendas-por-dia` visita a tabela de itens; um índice com as colunas usadas responde sozinho.",
+    "14": "A tabela `pedidos` e os índices mais usados não cabem no cache padrão do PostgreSQL.",
+    "15": "Um cache menor, dentro da faixa da documentação, pode render perto do de 256 MB.",
+    "16": "Um índice que cobre `pedidos` tira de `vendas-por-dia` as visitas à tabela.",
+    "17": "Menos consultas ao mesmo tempo disputam menos a única CPU do banco; as outras esperam na fila do pool.",
+}
+
+
+def tabela_artigo():
+    linhas = [
+        "| Mudança | Hipótese | p95 antes → depois | req/s antes → depois | CPU, % do limite · memória, MiB (banco · API) | Pastas de resultados (depois) | Conclusão |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for e in EXPERIMENTOS:
+        a = grupo(resolver(MEDICOES[e["antes"]]))
+        d = grupo(resolver(MEDICOES[e["id"]]))
+        desfeita = " (desfeita)" if e["status"] == SEM_GANHO else ""
+        linhas.append(" | ".join([
+            f"| [{e['id']}](../notas/diario-de-bordo.md#{e['rotulo']}) {e['mudanca']}{desfeita}",
+            HIPOTESES[e["id"]],
+            f"{num(a['p95'])} → {num(d['p95'])} ms ({variacao(a['p95'], d['p95'])})",
+            f"{num(a['reqs'], 2)} → {num(d['reqs'], 2)} ({variacao(a['reqs'], d['reqs'])})",
+            f"CPU {num(a['banco_cota'])} → {num(d['banco_cota'])} · {num(a['api_cota'])} → {num(d['api_cota'])}<br>"
+            f"memória {num(a['banco_mem'])} → {num(d['banco_mem'])} · {num(a['api_mem'])} → {num(d['api_mem'])}",
+            links(d, "../"),
             e["conclusao"] + " |",
         ]))
     return "\n".join(linhas)
@@ -791,8 +836,11 @@ def main():
 
     readme = README_MD.read_text(encoding="utf-8")
     README_MD.write_text(substituir_bloco(readme, "resumo", resumo_readme(pontos, custos, grupos_curva, pool_final, pool_original), README_MD), encoding="utf-8")
+
+    artigo = ARTIGO_MD.read_text(encoding="utf-8")
+    ARTIGO_MD.write_text(substituir_bloco(artigo, "experimentos", tabela_artigo(), ARTIGO_MD), encoding="utf-8")
     print(verificacao)
-    print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)}, {README_MD.relative_to(RAIZ)} e "
+    print(f"escrito: {EXPERIMENTOS_MD.relative_to(RAIZ)}, {README_MD.relative_to(RAIZ)}, {ARTIGO_MD.relative_to(RAIZ)} e "
           f"{len(list(IMG.glob('*.svg')))} gráficos em {IMG.relative_to(RAIZ)}/")
 
 
